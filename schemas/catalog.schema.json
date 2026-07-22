@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agx.dev/schemas/catalog.schema.json",
+  "title": "AGX Milestone 1 Catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "skills"],
+  "properties": {
+    "apiVersion": { "const": "agx.dev/v1alpha1" },
+    "kind": { "const": "Catalog" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "$ref": "#/$defs/name" }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "installStrategy": { "enum": ["auto", "copy"] },
+        "conflictPolicy": { "const": "error" }
+      }
+    },
+    "skills": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/skill" }
+    }
+  },
+  "$defs": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$"
+    },
+    "skill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "targets"],
+      "properties": {
+        "source": {
+          "oneOf": [
+            { "$ref": "#/$defs/localSource" },
+            { "$ref": "#/$defs/gitSource" }
+          ]
+        },
+        "overlay": { "type": "string", "minLength": 1 },
+        "targets": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "codex": { "$ref": "#/$defs/target" },
+            "claude": { "$ref": "#/$defs/target" }
+          }
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "localSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "path"],
+      "properties": {
+        "type": { "const": "local" },
+        "path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "gitSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "repository", "revision"],
+      "properties": {
+        "type": { "const": "git" },
+        "repository": { "type": "string", "minLength": 1 },
+        "revision": { "type": "string", "minLength": 1 },
+        "path": { "type": "string" }
+      }
+    }
+  }
+}

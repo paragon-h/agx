@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agx.dev/schemas/lock.schema.json",
+  "title": "AGX Milestone 1 Lockfile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "catalogDigest", "skills"],
+  "properties": {
+    "apiVersion": { "const": "agx.dev/v1alpha1" },
+    "kind": { "const": "Lockfile" },
+    "catalogDigest": { "$ref": "#/$defs/digest" },
+    "skills": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/lockedSkill" }
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "lockedSkill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "contentDigest", "lockedAt"],
+      "properties": {
+        "source": {
+          "oneOf": [
+            { "$ref": "#/$defs/lockedLocalSource" },
+            { "$ref": "#/$defs/lockedGitSource" }
+          ]
+        },
+        "contentDigest": { "$ref": "#/$defs/digest" },
+        "overlayDigest": { "$ref": "#/$defs/digest" },
+        "lockedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "lockedLocalSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "path"],
+      "properties": {
+        "type": { "const": "local" },
+        "path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "lockedGitSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "repository", "requestedRevision", "resolvedCommit"],
+      "properties": {
+        "type": { "const": "git" },
+        "repository": { "type": "string", "minLength": 1 },
+        "requestedRevision": { "type": "string", "minLength": 1 },
+        "resolvedCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "path": { "type": "string" }
+      }
+    }
+  }
+}
