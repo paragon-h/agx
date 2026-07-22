@@ -19,11 +19,12 @@ import (
 )
 
 const (
-	ExitSuccess       = 0
-	ExitFailure       = 1
-	ExitInvalidConfig = 2
-	ExitLockOutdated  = 3
-	ExitSourceFailure = 6
+	ExitSuccess          = 0
+	ExitFailure          = 1
+	ExitInvalidConfig    = 2
+	ExitLockOutdated     = 3
+	ExitSourceFailure    = 6
+	ExitAgentUnavailable = 7
 )
 
 type Runner struct {
@@ -53,7 +54,9 @@ func (r *Runner) Run(ctx context.Context, args []string) int {
 		return r.list(args[1:])
 	case "lock":
 		return r.lock(ctx, args[1:])
-	case "plan", "apply", "status", "doctor":
+	case "doctor":
+		return r.doctor(ctx, args[1:])
+	case "plan", "apply", "status":
 		fmt.Fprintf(r.stderr, "AGX_NOT_IMPLEMENTED: %q is part of Milestone 1 but is not implemented yet\n", args[0])
 		return ExitFailure
 	default:

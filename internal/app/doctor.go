@@ -1,0 +1,161 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"sort"
+	"strings"
+
+	"github.com/paragon-h/agx/internal/adapters"
+	"github.com/paragon-h/agx/internal/adapters/claude"
+	"github.com/paragon-h/agx/internal/adapters/codex"
+	"github.com/paragon-h/agx/internal/catalog"
+)
+
+type doctorReport struct {
+	Catalog string         `json:"catalog"`
+	Targets []doctorTarget `json:"targets"`
+}
+
+type doctorTarget struct {
+	Name            string `json:"name"`
+	Installed       bool   `json:"installed"`
+	Executable      string `json:"executable,omitempty"`
+	SkillsDir       string `json:"skillsDir"`
+	SkillsDirExists bool   `json:"skillsDirExists"`
+	Error           string `json:"error,omitempty"`
+}
+
+func (r *Runner) doctor(ctx context.Context, args []string) int {
+	if helpRequested(args) {
+		fmt.Fprintln(r.stdout, "Usage: agx doctor [--catalog PATH] [--json]")
+		return ExitSuccess
+	}
+	flags := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	catalogPath := flags.String("catalog", "agx.yaml", "catalog path")
+	jsonOutput := flags.Bool("json", false, "emit JSON")
+	if err := flags.Parse(args); err != nil {
+		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", err)
+	}
+	if flags.NArg() != 0 {
+		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " ")))
+	}
+	document, err := catalog.Load(*catalogPath)
+	if err != nil {
+		return r.commandError(ExitInvalidConfig, "AGX_CATALOG_INVALID", err)
+	}
+	targetNames := catalogTargets(document.Catalog)
+	report := doctorReport{Catalog: document.Path, Targets: make([]doctorTarget, 0, len(targetNames))}
+	unavailable := false
+	for _, targetName := range targetNames {
+		adapter, ok := adapterFor(targetName)
+		if !ok {
+			unavailable = true
+			report.Targets = append(report.Targets, doctorTarget{Name: targetName, Error: "no built-in adapter"})
+			continue
+		}
+		entry := doctorTarget{Name: targetName}
+		detection, detectErr := adapter.Detect(ctx)
+		if detectErr != nil {
+			entry.Error = appendDiagnostic(entry.Error, detectErr.Error())
+			unavailable = true
+		} else {
+			entry.Installed = detection.Installed
+			entry.Executable = detection.Executable
+			if !detection.Installed {
+				unavailable = true
+			}
+		}
+		paths, pathErr := adapter.ResolvePaths(ctx)
+		if pathErr != nil {
+			entry.Error = appendDiagnostic(entry.Error, pathErr.Error())
+			unavailable = true
+		} else {
+			entry.SkillsDir = paths.SkillsDir
+			if info, statErr := os.Stat(paths.SkillsDir); statErr == nil {
+				entry.SkillsDirExists = info.IsDir()
+				if !info.IsDir() {
+					entry.Error = appendDiagnostic(entry.Error, "skills path exists but is not a directory")
+					unavailable = true
+				}
+			} else if !os.IsNotExist(statErr) {
+				entry.Error = appendDiagnostic(entry.Error, statErr.Error())
+				unavailable = true
+			}
+		}
+		report.Targets = append(report.Targets, entry)
+	}
+	if *jsonOutput {
+		if err := json.NewEncoder(r.stdout).Encode(report); err != nil {
+			return r.commandError(ExitFailure, "AGX_OUTPUT_FAILED", err)
+		}
+	} else {
+		renderDoctorText(r.stdout, report)
+	}
+	if unavailable {
+		return ExitAgentUnavailable
+	}
+	return ExitSuccess
+}
+
+func appendDiagnostic(current, next string) string {
+	if current == "" {
+		return next
+	}
+	return current + "; " + next
+}
+
+func catalogTargets(value catalog.Catalog) []string {
+	seen := make(map[string]struct{})
+	for _, skill := range value.Skills {
+		for target, config := range skill.Targets {
+			if config.Enabled == nil || *config.Enabled {
+				seen[target] = struct{}{}
+			}
+		}
+	}
+	targets := make([]string, 0, len(seen))
+	for target := range seen {
+		targets = append(targets, target)
+	}
+	sort.Strings(targets)
+	return targets
+}
+
+func adapterFor(name string) (adapters.Adapter, bool) {
+	switch name {
+	case "codex":
+		return codex.New(), true
+	case "claude":
+		return claude.New(), true
+	default:
+		return nil, false
+	}
+}
+
+func renderDoctorText(w io.Writer, report doctorReport) {
+	fmt.Fprintf(w, "catalog: %s\n", report.Catalog)
+	for _, target := range report.Targets {
+		fmt.Fprintf(w, "target %s:\n", target.Name)
+		if target.Installed {
+			fmt.Fprintf(w, "  executable: %s (installed)\n", target.Executable)
+		} else {
+			fmt.Fprintln(w, "  executable: missing")
+		}
+		if target.SkillsDir != "" {
+			state := "missing"
+			if target.SkillsDirExists {
+				state = "exists"
+			}
+			fmt.Fprintf(w, "  skills: %s (%s)\n", target.SkillsDir, state)
+		}
+		if target.Error != "" {
+			fmt.Fprintf(w, "  error: %s\n", target.Error)
+		}
+	}
+}

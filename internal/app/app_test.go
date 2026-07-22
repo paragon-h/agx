@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -188,6 +189,94 @@ skills:
 	}
 }
 
+func TestRunnerDoctorDetectsConfiguredTarget(t *testing.T) {
+	root := writeDoctorCatalogFixture(t)
+	binDirectory := t.TempDir()
+	executable := filepath.Join(binDirectory, "codex")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDirectory)
+	agentHome := t.TempDir()
+	if err := os.Mkdir(filepath.Join(agentHome, "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_HOME", agentHome)
+
+	var stdout, stderr bytes.Buffer
+	runner := New(&stdout, &stderr, "dev")
+	if code := runner.Run(context.Background(), []string{"doctor", "--catalog", filepath.Join(root, "agx.yaml")}); code != ExitSuccess {
+		t.Fatalf("doctor code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), executable+" (installed)") || !strings.Contains(stdout.String(), filepath.Join(agentHome, "skills")+" (exists)") {
+		t.Fatalf("doctor stdout = %q", stdout.String())
+	}
+}
+
+func TestRunnerDoctorAllowsMissingSkillsDirectory(t *testing.T) {
+	root := writeDoctorCatalogFixture(t)
+	binDirectory := t.TempDir()
+	executable := filepath.Join(binDirectory, "codex")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDirectory)
+	agentHome := t.TempDir()
+	t.Setenv("CODEX_HOME", agentHome)
+
+	var stdout, stderr bytes.Buffer
+	runner := New(&stdout, &stderr, "dev")
+	if code := runner.Run(context.Background(), []string{"doctor", "--catalog", filepath.Join(root, "agx.yaml")}); code != ExitSuccess {
+		t.Fatalf("doctor code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), filepath.Join(agentHome, "skills")+" (missing)") {
+		t.Fatalf("doctor stdout = %q", stdout.String())
+	}
+}
+
+func TestRunnerDoctorJSONReportsMissingTarget(t *testing.T) {
+	root := writeDoctorCatalogFixture(t)
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("CODEX_HOME", t.TempDir())
+
+	var stdout, stderr bytes.Buffer
+	runner := New(&stdout, &stderr, "dev")
+	if code := runner.Run(context.Background(), []string{"doctor", "--catalog", filepath.Join(root, "agx.yaml"), "--json"}); code != ExitAgentUnavailable {
+		t.Fatalf("doctor code = %d, want %d; stderr = %q", code, ExitAgentUnavailable, stderr.String())
+	}
+	var report doctorReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("decode doctor JSON: %v; output = %q", err, stdout.String())
+	}
+	if len(report.Targets) != 1 || report.Targets[0].Name != "codex" || report.Targets[0].Installed {
+		t.Fatalf("doctor report = %#v", report)
+	}
+}
+
+func TestRunnerDoctorRejectsFileAtSkillsPath(t *testing.T) {
+	root := writeDoctorCatalogFixture(t)
+	binDirectory := t.TempDir()
+	executable := filepath.Join(binDirectory, "codex")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDirectory)
+	agentHome := t.TempDir()
+	if err := os.WriteFile(filepath.Join(agentHome, "skills"), []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_HOME", agentHome)
+
+	var stdout, stderr bytes.Buffer
+	runner := New(&stdout, &stderr, "dev")
+	if code := runner.Run(context.Background(), []string{"doctor", "--catalog", filepath.Join(root, "agx.yaml")}); code != ExitAgentUnavailable {
+		t.Fatalf("doctor code = %d, want %d; stderr = %q", code, ExitAgentUnavailable, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "skills path exists but is not a directory") {
+		t.Fatalf("doctor stdout = %q", stdout.String())
+	}
+}
+
 func writeLocalCatalogFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -210,6 +299,27 @@ skills:
     targets:
       codex: {}
       claude: {}
+`
+	if err := os.WriteFile(filepath.Join(root, "agx.yaml"), []byte(catalogYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func writeDoctorCatalogFixture(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	catalogYAML := `apiVersion: agx.dev/v1alpha1
+kind: Catalog
+metadata:
+  name: personal
+skills:
+  code-review:
+    source:
+      type: local
+      path: skills/code-review
+    targets:
+      codex: {}
 `
 	if err := os.WriteFile(filepath.Join(root, "agx.yaml"), []byte(catalogYAML), 0o644); err != nil {
 		t.Fatal(err)
