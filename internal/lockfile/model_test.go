@@ -52,3 +52,19 @@ func TestLocalSourceRejectsGitFields(t *testing.T) {
 		t.Fatal("Validate() error = nil, want local Git field error")
 	}
 }
+
+func TestGitSourceRejectsEmbeddedCredentials(t *testing.T) {
+	skill := LockedSkill{
+		Source: LockedSource{
+			Type:              "git",
+			Repository:        "https://token@example.com/skills.git",
+			RequestedRevision: "main",
+			ResolvedCommit:    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		},
+		ContentDigest: testDigest,
+		LockedAt:      "2026-07-22T10:00:00Z",
+	}
+	if err := skill.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want embedded credential error")
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/paragon-h/agx/internal/catalog"
@@ -83,6 +84,12 @@ func (s LockedSkill) Validate() error {
 	case "git":
 		if s.Source.Repository == "" || s.Source.RequestedRevision == "" {
 			return errors.New("git source requires repository and requestedRevision")
+		}
+		if err := catalog.ValidateGitRepository(s.Source.Repository); err != nil {
+			return err
+		}
+		if strings.HasPrefix(s.Source.RequestedRevision, "-") || strings.ContainsAny(s.Source.RequestedRevision, "\r\n\x00") {
+			return errors.New("git requestedRevision contains unsupported characters")
 		}
 		if !commitPattern.MatchString(s.Source.ResolvedCommit) {
 			return errors.New("git resolvedCommit must be a full lowercase commit SHA")

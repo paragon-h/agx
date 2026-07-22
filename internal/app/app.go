@@ -15,6 +15,7 @@ import (
 	"github.com/paragon-h/agx/internal/catalog"
 	"github.com/paragon-h/agx/internal/contenthash"
 	"github.com/paragon-h/agx/internal/lockfile"
+	gitresolver "github.com/paragon-h/agx/internal/resolver/git"
 )
 
 const (
@@ -35,7 +36,7 @@ func New(stdout, stderr io.Writer, version string) *Runner {
 	return &Runner{stdout: stdout, stderr: stderr, version: version}
 }
 
-func (r *Runner) Run(_ context.Context, args []string) int {
+func (r *Runner) Run(ctx context.Context, args []string) int {
 	if len(args) == 0 {
 		r.writeHelp(r.stdout)
 		return ExitSuccess
@@ -51,7 +52,7 @@ func (r *Runner) Run(_ context.Context, args []string) int {
 	case "list":
 		return r.list(args[1:])
 	case "lock":
-		return r.lock(args[1:])
+		return r.lock(ctx, args[1:])
 	case "plan", "apply", "status", "doctor":
 		fmt.Fprintf(r.stderr, "AGX_NOT_IMPLEMENTED: %q is part of Milestone 1 but is not implemented yet\n", args[0])
 		return ExitFailure
@@ -93,7 +94,7 @@ func (r *Runner) list(args []string) int {
 	return ExitSuccess
 }
 
-func (r *Runner) lock(args []string) int {
+func (r *Runner) lock(ctx context.Context, args []string) int {
 	if helpRequested(args) {
 		fmt.Fprintln(r.stdout, "Usage: agx lock [--catalog PATH] [--output PATH] [--frozen]")
 		return ExitSuccess
@@ -123,7 +124,7 @@ func (r *Runner) lock(args []string) int {
 	if existing, loadErr := lockfile.Load(*outputPath); loadErr == nil {
 		previous = &existing
 	}
-	value, count, err := buildLock(document, time.Now().UTC(), previous)
+	value, count, err := buildLock(ctx, document, time.Now().UTC(), previous)
 	if err != nil {
 		return r.commandError(ExitSourceFailure, "AGX_SOURCE_RESOLUTION_FAILED", err)
 	}
@@ -185,7 +186,7 @@ func (r *Runner) verifyFrozen(document catalog.Document, path string) int {
 	return ExitSuccess
 }
 
-func buildLock(document catalog.Document, lockedAt time.Time, previous *lockfile.Lockfile) (lockfile.Lockfile, int, error) {
+func buildLock(ctx context.Context, document catalog.Document, lockedAt time.Time, previous *lockfile.Lockfile) (lockfile.Lockfile, int, error) {
 	catalogDigest, err := contenthash.File(document.Path)
 	if err != nil {
 		return lockfile.Lockfile{}, 0, err
@@ -206,7 +207,22 @@ func buildLock(document catalog.Document, lockedAt time.Time, previous *lockfile
 			locked.Source = lockfile.LockedSource{Type: "local", Path: skill.Source.Path}
 			locked.ContentDigest, err = skillDigest(document.Resolve(skill.Source.Path))
 		case "git":
-			return lockfile.Lockfile{}, 0, fmt.Errorf("git source %q is not resolvable yet; the current prototype only locks local sources", name)
+			resolved, resolveErr := gitresolver.New().ResolveSkill(ctx, gitresolver.Request{
+				Repository: skill.Source.Repository,
+				Revision:   skill.Source.Revision,
+				Path:       skill.Source.Path,
+			})
+			if resolveErr != nil {
+				return lockfile.Lockfile{}, 0, fmt.Errorf("skill %q: %w", name, resolveErr)
+			}
+			locked.Source = lockfile.LockedSource{
+				Type:              "git",
+				Repository:        skill.Source.Repository,
+				RequestedRevision: skill.Source.Revision,
+				ResolvedCommit:    resolved.ResolvedCommit,
+				Path:              skill.Source.Path,
+			}
+			locked.ContentDigest = resolved.ContentDigest
 		default:
 			return lockfile.Lockfile{}, 0, fmt.Errorf("unsupported source type %q", skill.Source.Type)
 		}

@@ -61,3 +61,53 @@ func TestCatalogRejectsPortablePathEscape(t *testing.T) {
 		})
 	}
 }
+
+func TestCatalogRejectsEmbeddedGitCredentials(t *testing.T) {
+	catalog := Catalog{
+		APIVersion: APIVersion,
+		Kind:       Kind,
+		Metadata:   Metadata{Name: "personal"},
+		Skills: map[string]Skill{
+			"unsafe": {
+				Source: Source{
+					Type:       "git",
+					Repository: "https://token@example.com/skills.git",
+					Revision:   "main",
+				},
+				Targets: map[string]TargetConfig{"codex": {}},
+			},
+		},
+	}
+	if err := catalog.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want embedded credential error")
+	}
+}
+
+func TestValidateGitRepositoryRejectsSSHPassword(t *testing.T) {
+	if err := ValidateGitRepository("ssh://git:secret@example.com/skills.git"); err == nil {
+		t.Fatal("ValidateGitRepository() error = nil, want embedded SSH credential error")
+	}
+}
+
+func TestValidateGitRepositoryRejectsRemoteHelper(t *testing.T) {
+	if err := ValidateGitRepository("ext::sh -c dangerous"); err == nil {
+		t.Fatal("ValidateGitRepository() error = nil, want remote helper rejection")
+	}
+}
+
+func TestValidateGitRepositoryAcceptsStandardSources(t *testing.T) {
+	for _, repository := range []string{
+		"https://github.com/example/skills.git",
+		"ssh://git@github.com/example/skills.git",
+		"git@github.com:example/skills.git",
+		"/tmp/skills",
+		"../skills",
+		"file:///tmp/skills",
+	} {
+		t.Run(repository, func(t *testing.T) {
+			if err := ValidateGitRepository(repository); err != nil {
+				t.Fatalf("ValidateGitRepository() error = %v", err)
+			}
+		})
+	}
+}

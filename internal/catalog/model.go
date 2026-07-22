@@ -3,6 +3,7 @@ package catalog
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	pathpkg "path"
 	"regexp"
 	"strings"
@@ -16,6 +17,7 @@ const (
 var (
 	namePattern          = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
 	windowsVolumePattern = regexp.MustCompile(`^[A-Za-z]:`)
+	scpRepositoryPattern = regexp.MustCompile(`^(?:[^/@:]+@)?[^/:]+:[^:].+$`)
 )
 
 type Catalog struct {
@@ -104,6 +106,12 @@ func (s Skill) Validate() error {
 		if s.Source.Repository == "" || s.Source.Revision == "" {
 			return errors.New("git source requires repository and revision")
 		}
+		if strings.HasPrefix(s.Source.Revision, "-") || strings.ContainsAny(s.Source.Revision, "\r\n\x00") {
+			return errors.New("git revision contains unsupported characters")
+		}
+		if err := ValidateGitRepository(s.Source.Repository); err != nil {
+			return err
+		}
 		if s.Source.Path != "" && !ValidRelativePath(s.Source.Path) {
 			return errors.New("git source path must stay within the repository root")
 		}
@@ -125,6 +133,34 @@ func (s Skill) Validate() error {
 	}
 	if !hasEnabledTarget {
 		return errors.New("targets must enable at least one agent")
+	}
+	return nil
+}
+
+func ValidateGitRepository(repository string) error {
+	if strings.HasPrefix(repository, "-") || strings.ContainsAny(repository, "\r\n\x00") {
+		return errors.New("git repository contains unsupported characters")
+	}
+	if strings.Contains(repository, "::") {
+		return errors.New("Git remote helpers are not supported as repository sources")
+	}
+	if !strings.Contains(repository, "://") && scpRepositoryPattern.MatchString(repository) {
+		return nil
+	}
+	parsed, err := url.Parse(repository)
+	if err != nil {
+		return fmt.Errorf("git repository is invalid: %w", err)
+	}
+	if parsed.Scheme != "" && parsed.Scheme != "http" && parsed.Scheme != "https" && parsed.Scheme != "ssh" && parsed.Scheme != "git" && parsed.Scheme != "file" && !windowsVolumePattern.MatchString(repository) {
+		return fmt.Errorf("git repository scheme %q is not supported", parsed.Scheme)
+	}
+	if parsed.User != nil {
+		if _, hasPassword := parsed.User.Password(); hasPassword {
+			return errors.New("git repository must not contain embedded credentials")
+		}
+	}
+	if (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.User != nil {
+		return errors.New("git repository must not contain embedded HTTP credentials")
 	}
 	return nil
 }
