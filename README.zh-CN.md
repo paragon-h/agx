@@ -23,7 +23,7 @@ AGX 目前处于早期设计和实现阶段，CLI、Catalog Schema 和安装流�
 
 首个实现里程碑会刻意缩小范围：单个本地 Catalog、`local`/`git` Skill 来源、Codex/Claude Code Adapter、复制安装，以及 `list`、`lock`、`plan`、`apply`、`status`、`doctor` 命令。Plugins、MCP Servers、Instructions、Profiles 和多 Catalog 仍属于目标模型，但不是 Milestone 1 的交付承诺。
 
-当前原型已经可以严格加载单个 `agx.yaml`、列出声明的 Skills、锁定本地或 Git 来源的 Skills、原子写入 `agx.lock`、通过 `agx lock --frozen` 验证锁定状态、使用 `agx doctor` 诊断 Codex/Claude Code target，并通过 `agx plan` 生成只读安装预览。未知现有目标默认视为冲突；`--adopt` 只接受内容与 lockfile 完全一致的目标。Git branch、tag 和 commit 会通过系统 Git 解析为完整 commit SHA。`apply` 和 generation 状态尚未实现。
+当前原型已经可以加载并锁定单个 Catalog、诊断 Codex/Claude Code target、生成只读计划，并通过 copy 模式的 `agx apply` 安装本地或 Git 来源的 Skills。Apply 会先完成全部 staging，再切换目标；受管理目录会先备份，失败时回滚，并在平台状态目录中记录 generation。未知现有目标仍默认视为冲突，只有内容完全一致时才能使用 `--adopt`；被外部修改的受管理目标不会被静默覆盖。Generation 状态查看和用户主动回滚命令尚未实现。
 
 ## 为什么需要 AGX
 
@@ -215,6 +215,7 @@ go run ./cmd/agx lock           # 存在 Git 来源时进行解析
 go run ./cmd/agx lock --frozen  # 不执行 Git 或网络解析
 go run ./cmd/agx doctor         # 只读检查 Codex/Claude target
 go run ./cmd/agx plan           # 只读目标差异预览
+go run ./cmd/agx apply          # 事务式 copy 安装
 ```
 
 ## 项目边界
