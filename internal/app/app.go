@@ -61,8 +61,7 @@ func (r *Runner) Run(ctx context.Context, args []string) int {
 	case "apply":
 		return r.apply(ctx, args[1:])
 	case "status":
-		fmt.Fprintf(r.stderr, "AGX_NOT_IMPLEMENTED: %q is part of Milestone 1 but is not implemented yet\n", args[0])
-		return ExitFailure
+		return r.status(args[1:])
 	default:
 		fmt.Fprintf(r.stderr, "AGX_UNKNOWN_COMMAND: unknown command %q\n", args[0])
 		fmt.Fprintln(r.stderr, "Run 'agx help' to see available commands.")
