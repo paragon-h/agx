@@ -23,6 +23,8 @@ AGX 目前处于早期设计和实现阶段，CLI、Catalog Schema 和安装流�
 
 首个实现里程碑会刻意缩小范围：单个本地 Catalog、`local`/`git` Skill 来源、Codex/Claude Code Adapter、复制安装，以及 `list`、`lock`、`plan`、`apply`、`status`、`doctor` 命令。Plugins、MCP Servers、Instructions、Profiles 和多 Catalog 仍属于目标模型，但不是 Milestone 1 的交付承诺。
 
+当前原型已经可以严格加载单个 `agx.yaml`、列出声明的 Skills、按内容摘要锁定本地 Skill 目录、原子写入 `agx.lock`，并通过 `agx lock --frozen` 验证本地状态。Git 解析和安装类命令尚未实现。
+
 ## 为什么需要 AGX
 
 不同 Agent 使用不同的全局目录、配置格式和扩展机制。直接在每个 Agent 中分别维护会导致：
@@ -72,9 +74,9 @@ Agent global directories and managed configuration fields
 - **Adapter** 处理不同 Agent 的路径、能力、渲染与配置合并差异。
 - **Generation** 记录一次完整部署，用于状态检查和回滚。
 
-## Catalog 示例
+## 目标 Catalog 示例
 
-> 以下 Schema 仍在设计中。
+> 以下内容展示目标模型，其中包含当前 Milestone 1 解析器尚不接受的字段。当前可执行的子集以 `schemas/catalog.schema.json` 为准。
 
 ```yaml
 apiVersion: agx.dev/v1alpha1
@@ -206,6 +208,11 @@ AGX 计划使用 Go 实现，以单一二进制提供 macOS、Linux 和 Windows 
 ```bash
 go test ./...
 go build ./cmd/agx
+
+# 当前目录中已有 agx.yaml 时
+go run ./cmd/agx list
+go run ./cmd/agx lock
+go run ./cmd/agx lock --frozen
 ```
 
 ## 项目边界
