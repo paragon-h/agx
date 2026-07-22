@@ -56,7 +56,9 @@ func (r *Runner) Run(ctx context.Context, args []string) int {
 		return r.lock(ctx, args[1:])
 	case "doctor":
 		return r.doctor(ctx, args[1:])
-	case "plan", "apply", "status":
+	case "plan":
+		return r.plan(ctx, args[1:])
+	case "apply", "status":
 		fmt.Fprintf(r.stderr, "AGX_NOT_IMPLEMENTED: %q is part of Milestone 1 but is not implemented yet\n", args[0])
 		return ExitFailure
 	default:
@@ -84,12 +86,7 @@ func (r *Runner) list(args []string) int {
 	if err != nil {
 		return r.commandError(ExitInvalidConfig, "AGX_CATALOG_INVALID", err)
 	}
-	names := make([]string, 0, len(document.Catalog.Skills))
-	for name := range document.Catalog.Skills {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	for _, name := range sortedSkillNames(document.Catalog) {
 		skill := document.Catalog.Skills[name]
 		targets := enabledTargets(skill.Targets)
 		fmt.Fprintf(r.stdout, "%s\t%s\t%s\n", catalog.QualifiedName(document.Catalog.Metadata.Name, name), skill.Source.Type, strings.Join(targets, ","))

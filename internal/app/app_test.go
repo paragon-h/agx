@@ -171,6 +171,24 @@ skills:
 	if stillLocked.Skills["review"].Source.ResolvedCommit != wantCommit {
 		t.Fatal("frozen lock unexpectedly resolved the updated branch")
 	}
+	binDirectory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDirectory, "codex"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDirectory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("CODEX_HOME", t.TempDir())
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"plan", "--catalog", catalogPath, "--json"}); code != ExitSuccess {
+		t.Fatalf("Git plan code = %d, stderr = %q", code, stderr.String())
+	}
+	var gitPlan planReport
+	if err := json.Unmarshal(stdout.Bytes(), &gitPlan); err != nil {
+		t.Fatal(err)
+	}
+	if len(gitPlan.Changes) != 1 || gitPlan.Changes[0].Action != "add" {
+		t.Fatalf("Git plan = %#v", gitPlan)
+	}
 
 	stdout.Reset()
 	stderr.Reset()
