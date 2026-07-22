@@ -23,7 +23,7 @@ AGX 目前处于早期设计和实现阶段，CLI、Catalog Schema 和安装流�
 
 首个实现里程碑会刻意缩小范围：单个本地 Catalog、`local`/`git` Skill 来源、Codex/Claude Code Adapter、复制安装，以及 `list`、`lock`、`plan`、`apply`、`status`、`doctor` 命令。Plugins、MCP Servers、Instructions、Profiles 和多 Catalog 仍属于目标模型，但不是 Milestone 1 的交付承诺。
 
-当前原型已经可以严格加载单个 `agx.yaml`、列出声明的 Skills、按内容摘要锁定本地 Skill 目录、原子写入 `agx.lock`，并通过 `agx lock --frozen` 验证本地状态。Git 解析和安装类命令尚未实现。
+当前原型已经可以严格加载单个 `agx.yaml`、列出声明的 Skills、锁定本地或 Git 来源的 Skills、原子写入 `agx.lock`，并通过 `agx lock --frozen` 验证锁定状态。Git branch、tag 和 commit 会通过系统 Git 解析为完整 commit SHA，并单独计算所选 Skill 子目录的摘要。安装类命令尚未实现。
 
 ## 为什么需要 AGX
 
@@ -211,8 +211,8 @@ go build ./cmd/agx
 
 # 当前目录中已有 agx.yaml 时
 go run ./cmd/agx list
-go run ./cmd/agx lock
-go run ./cmd/agx lock --frozen
+go run ./cmd/agx lock           # 存在 Git 来源时进行解析
+go run ./cmd/agx lock --frozen  # 不执行 Git 或网络解析
 ```
 
 ## 项目边界
