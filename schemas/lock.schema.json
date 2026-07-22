@@ -11,10 +11,16 @@
     "catalogDigest": { "$ref": "#/$defs/digest" },
     "skills": {
       "type": "object",
+	  "minProperties": 1,
+	  "propertyNames": { "$ref": "#/$defs/name" },
       "additionalProperties": { "$ref": "#/$defs/lockedSkill" }
     }
   },
   "$defs": {
+	"name": {
+	  "type": "string",
+	  "pattern": "^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$"
+	},
     "digest": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"

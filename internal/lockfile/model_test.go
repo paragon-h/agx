@@ -37,3 +37,18 @@ func TestGitSourceRejectsShortCommit(t *testing.T) {
 		t.Fatal("Validate() error = nil, want full commit error")
 	}
 }
+
+func TestLocalSourceRejectsGitFields(t *testing.T) {
+	skill := LockedSkill{
+		Source: LockedSource{
+			Type:       "local",
+			Path:       "skills/example",
+			Repository: "https://example.com/skills.git",
+		},
+		ContentDigest: testDigest,
+		LockedAt:      "2026-07-22T10:00:00Z",
+	}
+	if err := skill.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want local Git field error")
+	}
+}

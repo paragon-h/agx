@@ -3,7 +3,7 @@ package catalog
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
+	pathpkg "path"
 	"regexp"
 	"strings"
 )
@@ -13,7 +13,10 @@ const (
 	Kind       = "Catalog"
 )
 
-var namePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
+var (
+	namePattern          = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
+	windowsVolumePattern = regexp.MustCompile(`^[A-Za-z]:`)
+)
 
 type Catalog struct {
 	APIVersion string           `json:"apiVersion" yaml:"apiVersion"`
@@ -62,6 +65,12 @@ func (c Catalog) Validate() error {
 	if len(c.Skills) == 0 {
 		return errors.New("skills must contain at least one entry")
 	}
+	if c.Defaults.InstallStrategy != "" && c.Defaults.InstallStrategy != "auto" && c.Defaults.InstallStrategy != "copy" {
+		return errors.New("defaults.installStrategy must be auto or copy in Milestone 1")
+	}
+	if c.Defaults.ConflictPolicy != "" && c.Defaults.ConflictPolicy != "error" {
+		return errors.New("defaults.conflictPolicy must be error in Milestone 1")
+	}
 	for name, skill := range c.Skills {
 		if !ValidName(name) {
 			return fmt.Errorf("skill %q has an invalid short name", name)
@@ -77,12 +86,15 @@ func (c Catalog) Validate() error {
 }
 
 func (s Skill) Validate() error {
+	if s.Overlay != "" && !ValidRelativePath(s.Overlay) {
+		return errors.New("overlay path must stay within the catalog root")
+	}
 	switch s.Source.Type {
 	case "local":
 		if s.Source.Path == "" {
 			return errors.New("local source requires path")
 		}
-		if filepath.IsAbs(s.Source.Path) || escapesRoot(s.Source.Path) {
+		if !ValidRelativePath(s.Source.Path) {
 			return errors.New("local source path must stay within the catalog root")
 		}
 		if s.Source.Repository != "" || s.Source.Revision != "" {
@@ -92,7 +104,7 @@ func (s Skill) Validate() error {
 		if s.Source.Repository == "" || s.Source.Revision == "" {
 			return errors.New("git source requires repository and revision")
 		}
-		if s.Source.Path != "" && (filepath.IsAbs(s.Source.Path) || escapesRoot(s.Source.Path)) {
+		if s.Source.Path != "" && !ValidRelativePath(s.Source.Path) {
 			return errors.New("git source path must stay within the repository root")
 		}
 	default:
@@ -101,10 +113,18 @@ func (s Skill) Validate() error {
 	if len(s.Targets) == 0 {
 		return errors.New("targets must contain at least one agent")
 	}
+	hasEnabledTarget := false
 	for target := range s.Targets {
 		if target != "codex" && target != "claude" {
 			return fmt.Errorf("Milestone 1 does not support target %q", target)
 		}
+		config := s.Targets[target]
+		if config.Enabled == nil || *config.Enabled {
+			hasEnabledTarget = true
+		}
+	}
+	if !hasEnabledTarget {
+		return errors.New("targets must enable at least one agent")
 	}
 	return nil
 }
@@ -117,7 +137,11 @@ func QualifiedName(catalogName, resourceName string) string {
 	return catalogName + "/" + resourceName
 }
 
-func escapesRoot(path string) bool {
-	cleaned := filepath.Clean(path)
-	return cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator))
+func ValidRelativePath(value string) bool {
+	normalized := strings.ReplaceAll(value, "\\", "/")
+	cleaned := pathpkg.Clean(normalized)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.HasPrefix(cleaned, "/") {
+		return false
+	}
+	return !windowsVolumePattern.MatchString(cleaned)
 }

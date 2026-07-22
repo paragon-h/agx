@@ -40,3 +40,24 @@ func TestCatalogRejectsEscapingLocalPath(t *testing.T) {
 		t.Fatal("Validate() error = nil, want path escape error")
 	}
 }
+
+func TestCatalogRejectsPortablePathEscape(t *testing.T) {
+	for _, sourcePath := range []string{`..\\outside`, `C:\\outside`, `/outside`} {
+		t.Run(sourcePath, func(t *testing.T) {
+			catalog := Catalog{
+				APIVersion: APIVersion,
+				Kind:       Kind,
+				Metadata:   Metadata{Name: "personal"},
+				Skills: map[string]Skill{
+					"unsafe": {
+						Source:  Source{Type: "local", Path: sourcePath},
+						Targets: map[string]TargetConfig{"codex": {}},
+					},
+				},
+			}
+			if err := catalog.Validate(); err == nil {
+				t.Fatal("Validate() error = nil, want portable path escape error")
+			}
+		})
+	}
+}

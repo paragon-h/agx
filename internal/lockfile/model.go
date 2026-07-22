@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"time"
+
+	"github.com/paragon-h/agx/internal/catalog"
 )
 
 const (
@@ -46,7 +48,13 @@ func (l Lockfile) Validate() error {
 	if !validDigest(l.CatalogDigest) {
 		return errors.New("catalogDigest must be a sha256 digest")
 	}
+	if len(l.Skills) == 0 {
+		return errors.New("skills must contain at least one entry")
+	}
 	for name, skill := range l.Skills {
+		if !catalog.ValidName(name) {
+			return fmt.Errorf("skill %q has an invalid short name", name)
+		}
 		if err := skill.Validate(); err != nil {
 			return fmt.Errorf("skill %q: %w", name, err)
 		}
@@ -66,11 +74,11 @@ func (s LockedSkill) Validate() error {
 	}
 	switch s.Source.Type {
 	case "local":
-		if s.Source.Path == "" {
-			return errors.New("local source requires path")
+		if !catalog.ValidRelativePath(s.Source.Path) {
+			return errors.New("local source requires a relative path within the catalog root")
 		}
-		if s.Source.ResolvedCommit != "" {
-			return errors.New("local source cannot have resolvedCommit")
+		if s.Source.Repository != "" || s.Source.RequestedRevision != "" || s.Source.ResolvedCommit != "" {
+			return errors.New("local source cannot contain Git resolution fields")
 		}
 	case "git":
 		if s.Source.Repository == "" || s.Source.RequestedRevision == "" {
@@ -78,6 +86,9 @@ func (s LockedSkill) Validate() error {
 		}
 		if !commitPattern.MatchString(s.Source.ResolvedCommit) {
 			return errors.New("git resolvedCommit must be a full lowercase commit SHA")
+		}
+		if s.Source.Path != "" && !catalog.ValidRelativePath(s.Source.Path) {
+			return errors.New("git source path must stay within the repository root")
 		}
 	default:
 		return fmt.Errorf("unsupported source type %q", s.Source.Type)
