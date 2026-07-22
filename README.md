@@ -23,7 +23,7 @@ AGX is currently in the early design and implementation stage. Its CLI, catalog 
 
 The first implementation milestone is intentionally narrower: one local catalog, `local` and `git` skill sources, Codex and Claude Code adapters, copy-based installation, and the `list`, `lock`, `plan`, `apply`, `status`, and `doctor` commands. Plugins, MCP servers, instructions, profiles, and multiple catalogs remain part of the target model but are not Milestone 1 commitments.
 
-The current prototype can strictly load a single `agx.yaml`, list declared skills, lock local or Git-backed Skills, write `agx.lock` atomically, verify locked state with `agx lock --frozen`, and diagnose configured Codex or Claude Code targets with `agx doctor`. Git branches, tags, and commits are resolved through system Git to a full commit SHA; the selected Skill subtree is hashed independently. Installation commands are not implemented yet.
+The current prototype can strictly load a single `agx.yaml`, list declared skills, lock local or Git-backed Skills, write `agx.lock` atomically, verify locked state with `agx lock --frozen`, diagnose configured Codex or Claude Code targets with `agx doctor`, and compute a read-only installation preview with `agx plan`. Unknown existing targets are conflicts by default; `--adopt` only accepts targets whose content exactly matches the lockfile. Git branches, tags, and commits are resolved through system Git to a full commit SHA. `apply` and generation status are not implemented yet.
 
 ## Why AGX
 
@@ -214,6 +214,7 @@ go run ./cmd/agx list
 go run ./cmd/agx lock           # resolves Git sources when present
 go run ./cmd/agx lock --frozen  # performs no Git or network resolution
 go run ./cmd/agx doctor         # read-only Codex/Claude target checks
+go run ./cmd/agx plan           # read-only target diff
 ```
 
 ## Project boundary
