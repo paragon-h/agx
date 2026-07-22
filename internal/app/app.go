@@ -58,7 +58,9 @@ func (r *Runner) Run(ctx context.Context, args []string) int {
 		return r.doctor(ctx, args[1:])
 	case "plan":
 		return r.plan(ctx, args[1:])
-	case "apply", "status":
+	case "apply":
+		return r.apply(ctx, args[1:])
+	case "status":
 		fmt.Fprintf(r.stderr, "AGX_NOT_IMPLEMENTED: %q is part of Milestone 1 but is not implemented yet\n", args[0])
 		return ExitFailure
 	default:

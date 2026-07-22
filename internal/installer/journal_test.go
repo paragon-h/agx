@@ -8,7 +8,9 @@ func TestJournalRejectsImpossibleRestore(t *testing.T) {
 		State: StateRollingBack,
 		Targets: []TargetChange{{
 			Agent:      "codex",
+			Action:     "add",
 			TargetPath: "/tmp/codex/skills/example",
+			StagePath:  "/tmp/stage/example",
 			Restored:   true,
 		}},
 	}

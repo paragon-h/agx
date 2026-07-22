@@ -16,6 +16,7 @@ import (
 	"github.com/paragon-h/agx/internal/contenthash"
 	"github.com/paragon-h/agx/internal/lockfile"
 	gitresolver "github.com/paragon-h/agx/internal/resolver/git"
+	"github.com/paragon-h/agx/internal/state"
 )
 
 const ExitTargetConflict = 5
@@ -32,15 +33,18 @@ type planChange struct {
 	Skill         string `json:"skill"`
 	Path          string `json:"path"`
 	Action        string `json:"action"`
-	DesiredDigest string `json:"desiredDigest"`
+	DesiredDigest string `json:"desiredDigest,omitempty"`
 	CurrentDigest string `json:"currentDigest,omitempty"`
 	Reason        string `json:"reason,omitempty"`
 }
 
 type planSummary struct {
-	Add      int `json:"add"`
-	Adopt    int `json:"adopt"`
-	Conflict int `json:"conflict"`
+	Add       int `json:"add"`
+	Adopt     int `json:"adopt"`
+	Update    int `json:"update"`
+	Unchanged int `json:"unchanged"`
+	Remove    int `json:"remove"`
+	Conflict  int `json:"conflict"`
 }
 
 func (r *Runner) plan(ctx context.Context, args []string) int {
@@ -74,50 +78,17 @@ func (r *Runner) plan(ctx context.Context, args []string) int {
 	if code, err := verifyPlanSources(ctx, document, locked); err != nil {
 		return r.commandError(code, planErrorCode(code), err)
 	}
-
-	report := planReport{Catalog: document.Path, Lockfile: *lockPath}
-	targetPaths := make(map[string]string)
-	for _, targetName := range catalogTargets(document.Catalog) {
-		adapter, ok := adapterFor(targetName)
-		if !ok {
-			return r.commandError(ExitAgentUnavailable, "AGX_AGENT_UNAVAILABLE", fmt.Errorf("target %q has no built-in adapter", targetName))
-		}
-		detection, err := adapter.Detect(ctx)
-		if err != nil {
-			return r.commandError(ExitAgentUnavailable, "AGX_AGENT_UNAVAILABLE", err)
-		}
-		if !detection.Installed {
-			return r.commandError(ExitAgentUnavailable, "AGX_AGENT_UNAVAILABLE", fmt.Errorf("target %q executable is not available", targetName))
-		}
-		paths, err := adapter.ResolvePaths(ctx)
-		if err != nil {
-			return r.commandError(ExitAgentUnavailable, "AGX_AGENT_UNAVAILABLE", err)
-		}
-		targetPaths[targetName] = paths.SkillsDir
+	current, err := state.Current()
+	if err != nil {
+		return r.commandError(ExitFailure, "AGX_STATE_INVALID", err)
 	}
-	if err := validateTargetRoots(targetPaths); err != nil {
-		return r.commandError(ExitTargetConflict, "TARGET_CONFLICT", err)
+	managed := make(map[string]state.Entry)
+	if current != nil {
+		managed = current.ManagedByPath()
 	}
-
-	for _, name := range sortedSkillNames(document.Catalog) {
-		skill := document.Catalog.Skills[name]
-		if skill.Overlay != "" {
-			return r.commandError(ExitFailure, "AGX_PLAN_UNSUPPORTED", fmt.Errorf("skill %q uses an overlay; overlay rendering is not implemented yet", name))
-		}
-		lockedSkill := locked.Skills[name]
-		for _, targetName := range enabledTargets(skill.Targets) {
-			targetPath := filepath.Join(targetPaths[targetName], name)
-			change := inspectPlanTarget(targetName, catalog.QualifiedName(document.Catalog.Metadata.Name, name), targetPath, lockedSkill.ContentDigest, *adopt)
-			report.Changes = append(report.Changes, change)
-			switch change.Action {
-			case "add":
-				report.Summary.Add++
-			case "adopt":
-				report.Summary.Adopt++
-			case "conflict":
-				report.Summary.Conflict++
-			}
-		}
+	report, code, err := buildPlan(ctx, document, locked, *lockPath, *adopt, managed)
+	if err != nil {
+		return r.commandError(code, planErrorCode(code), err)
 	}
 	if *jsonOutput {
 		if err := json.NewEncoder(r.stdout).Encode(report); err != nil {
@@ -130,6 +101,124 @@ func (r *Runner) plan(ctx context.Context, args []string) int {
 		return ExitTargetConflict
 	}
 	return ExitSuccess
+}
+
+func buildPlan(ctx context.Context, document catalog.Document, locked lockfile.Lockfile, lockPath string, adopt bool, managed map[string]state.Entry) (planReport, int, error) {
+	report := planReport{Catalog: document.Path, Lockfile: lockPath}
+	targetPaths := make(map[string]string)
+	for _, targetName := range catalogTargets(document.Catalog) {
+		adapter, ok := adapterFor(targetName)
+		if !ok {
+			return planReport{}, ExitAgentUnavailable, fmt.Errorf("target %q has no built-in adapter", targetName)
+		}
+		detection, err := adapter.Detect(ctx)
+		if err != nil {
+			return planReport{}, ExitAgentUnavailable, err
+		}
+		if !detection.Installed {
+			return planReport{}, ExitAgentUnavailable, fmt.Errorf("target %q executable is not available", targetName)
+		}
+		paths, err := adapter.ResolvePaths(ctx)
+		if err != nil {
+			return planReport{}, ExitAgentUnavailable, err
+		}
+		targetPaths[targetName] = paths.SkillsDir
+	}
+	for _, entry := range managed {
+		adapter, ok := adapterFor(entry.Target)
+		if !ok {
+			return planReport{}, ExitTargetConflict, fmt.Errorf("managed target %q has no built-in adapter", entry.Target)
+		}
+		paths, err := adapter.ResolvePaths(ctx)
+		if err != nil {
+			return planReport{}, ExitTargetConflict, err
+		}
+		root := filepath.Clean(paths.SkillsDir)
+		if activeRoot, ok := targetPaths[entry.Target]; ok && filepath.Clean(activeRoot) != root {
+			return planReport{}, ExitTargetConflict, fmt.Errorf("managed target root changed for %q", entry.Target)
+		}
+		separator := strings.LastIndex(entry.Skill, "/")
+		shortName := ""
+		if separator >= 0 {
+			shortName = entry.Skill[separator+1:]
+		}
+		if filepath.Dir(filepath.Clean(entry.Path)) != root || !catalog.ValidName(shortName) || filepath.Base(entry.Path) != shortName {
+			return planReport{}, ExitTargetConflict, fmt.Errorf("managed path is outside the %s Skill root: %s", entry.Target, entry.Path)
+		}
+		targetPaths[entry.Target] = root
+	}
+	if err := validateTargetRoots(targetPaths); err != nil {
+		return planReport{}, ExitTargetConflict, err
+	}
+
+	for _, name := range sortedSkillNames(document.Catalog) {
+		skill := document.Catalog.Skills[name]
+		if skill.Overlay != "" {
+			return planReport{}, ExitFailure, fmt.Errorf("skill %q uses an overlay; overlay rendering is not implemented yet", name)
+		}
+		lockedSkill := locked.Skills[name]
+		for _, targetName := range enabledTargets(skill.Targets) {
+			targetPath := filepath.Join(targetPaths[targetName], name)
+			managedEntry, isManaged := managed[filepath.Clean(targetPath)]
+			change := inspectPlanTarget(targetName, catalog.QualifiedName(document.Catalog.Metadata.Name, name), targetPath, lockedSkill.ContentDigest, adopt, isManaged, managedEntry)
+			report.Changes = append(report.Changes, change)
+			switch change.Action {
+			case "add":
+				report.Summary.Add++
+			case "adopt":
+				report.Summary.Adopt++
+			case "update":
+				report.Summary.Update++
+			case "unchanged":
+				report.Summary.Unchanged++
+			case "conflict":
+				report.Summary.Conflict++
+			}
+		}
+	}
+	desiredPaths := make(map[string]struct{}, len(report.Changes))
+	for _, change := range report.Changes {
+		desiredPaths[filepath.Clean(change.Path)] = struct{}{}
+	}
+	for path, entry := range managed {
+		if _, desired := desiredPaths[path]; desired {
+			continue
+		}
+		change := planChange{Target: entry.Target, Skill: entry.Skill, Path: path, Action: "remove", Reason: "managed target is no longer declared"}
+		info, err := os.Lstat(path)
+		if os.IsNotExist(err) {
+			change.Reason = "managed target is already absent"
+		} else if err != nil {
+			change.Action = "conflict"
+			change.Reason = err.Error()
+			report.Summary.Conflict++
+		} else if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			change.Action = "conflict"
+			change.Reason = "managed target is not a regular directory"
+			report.Summary.Conflict++
+		} else if digest, digestErr := contenthash.Directory(path); digestErr != nil {
+			change.Action = "conflict"
+			change.Reason = digestErr.Error()
+			report.Summary.Conflict++
+		} else if digest != entry.ContentDigest {
+			change.Action = "conflict"
+			change.Reason = "managed target was modified outside AGX"
+			report.Summary.Conflict++
+		} else {
+			change.CurrentDigest = digest
+		}
+		report.Changes = append(report.Changes, change)
+		if change.Action == "remove" {
+			report.Summary.Remove++
+		}
+	}
+	sort.Slice(report.Changes, func(i, j int) bool {
+		if report.Changes[i].Target != report.Changes[j].Target {
+			return report.Changes[i].Target < report.Changes[j].Target
+		}
+		return report.Changes[i].Skill < report.Changes[j].Skill
+	})
+	return report, ExitSuccess, nil
 }
 
 func validateTargetRoots(targetPaths map[string]string) error {
@@ -232,7 +321,7 @@ func sortedSkillNames(value catalog.Catalog) []string {
 	return names
 }
 
-func inspectPlanTarget(target, skill, path, desiredDigest string, adopt bool) planChange {
+func inspectPlanTarget(target, skill, path, desiredDigest string, adopt, managed bool, managedEntry state.Entry) planChange {
 	change := planChange{Target: target, Skill: skill, Path: path, DesiredDigest: desiredDigest}
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
@@ -256,6 +345,24 @@ func inspectPlanTarget(target, skill, path, desiredDigest string, adopt bool) pl
 		return change
 	}
 	change.CurrentDigest = digest
+	if managed {
+		if managedEntry.Target != target || managedEntry.Skill != skill {
+			change.Action = "conflict"
+			change.Reason = "generation ownership does not match the requested target"
+			return change
+		}
+		if digest != managedEntry.ContentDigest {
+			change.Action = "conflict"
+			change.Reason = "managed target was modified outside AGX"
+			return change
+		}
+		if digest == desiredDigest {
+			change.Action = "unchanged"
+			return change
+		}
+		change.Action = "update"
+		return change
+	}
 	if digest != desiredDigest {
 		change.Action = "conflict"
 		change.Reason = "unmanaged target content differs"
@@ -278,6 +385,10 @@ func planErrorCode(exitCode int) string {
 		return "AGX_SOURCE_RESOLUTION_FAILED"
 	case ExitInvalidConfig:
 		return "AGX_INVALID_CONFIG"
+	case ExitAgentUnavailable:
+		return "AGX_AGENT_UNAVAILABLE"
+	case ExitTargetConflict:
+		return "TARGET_CONFLICT"
 	default:
 		return "AGX_PLAN_FAILED"
 	}
@@ -293,5 +404,5 @@ func renderPlanText(w io.Writer, report planReport) {
 		}
 		fmt.Fprintln(w)
 	}
-	fmt.Fprintf(w, "summary: add=%d adopt=%d conflict=%d\n", report.Summary.Add, report.Summary.Adopt, report.Summary.Conflict)
+	fmt.Fprintf(w, "summary: add=%d adopt=%d update=%d unchanged=%d remove=%d conflict=%d\n", report.Summary.Add, report.Summary.Adopt, report.Summary.Update, report.Summary.Unchanged, report.Summary.Remove, report.Summary.Conflict)
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/paragon-h/agx/internal/catalog"
 	"github.com/paragon-h/agx/internal/contenthash"
+	"github.com/paragon-h/agx/internal/filetree"
 )
 
 var (
@@ -41,6 +42,17 @@ func New() Resolver {
 }
 
 func (r Resolver) ResolveSkill(ctx context.Context, request Request) (Result, error) {
+	return r.resolveSkill(ctx, request, "")
+}
+
+func (r Resolver) MaterializeSkill(ctx context.Context, request Request, destination string) (Result, error) {
+	if destination == "" {
+		return Result{}, errors.New("materialization destination is required")
+	}
+	return r.resolveSkill(ctx, request, destination)
+}
+
+func (r Resolver) resolveSkill(ctx context.Context, request Request, destination string) (Result, error) {
 	if request.Repository == "" || request.Revision == "" {
 		return Result{}, errors.New("repository and revision are required")
 	}
@@ -101,6 +113,18 @@ func (r Resolver) ResolveSkill(ctx context.Context, request Request) (Result, er
 	digest, err := contenthash.Directory(skillRoot)
 	if err != nil {
 		return Result{}, fmt.Errorf("hash resolved Skill: %w", err)
+	}
+	if destination != "" {
+		if err := filetree.Copy(skillRoot, destination); err != nil {
+			return Result{}, fmt.Errorf("materialize resolved Skill: %w", err)
+		}
+		materializedDigest, err := contenthash.Directory(destination)
+		if err != nil {
+			return Result{}, err
+		}
+		if materializedDigest != digest {
+			return Result{}, errors.New("materialized Skill digest mismatch")
+		}
 	}
 	return Result{ResolvedCommit: resolvedCommit, ContentDigest: digest}, nil
 }

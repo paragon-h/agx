@@ -119,6 +119,26 @@ func TestResolveSkillRejectsSymlink(t *testing.T) {
 	}
 }
 
+func TestMaterializeSkill(t *testing.T) {
+	repository, firstCommit, _ := createRepositoryFixture(t)
+	destination := filepath.Join(t.TempDir(), "skill")
+	result, err := New().MaterializeSkill(context.Background(), Request{
+		Repository: repository,
+		Revision:   firstCommit,
+		Path:       "skills/code-review",
+	}, destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := contenthash.Directory(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if digest != result.ContentDigest {
+		t.Fatalf("materialized digest = %q, want %q", digest, result.ContentDigest)
+	}
+}
+
 func createRepositoryFixture(t *testing.T) (string, string, string) {
 	t.Helper()
 	repository := t.TempDir()

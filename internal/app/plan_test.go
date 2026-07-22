@@ -118,6 +118,7 @@ func TestRunnerPlanRequiresConfiguredAgent(t *testing.T) {
 	}
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("CODEX_HOME", t.TempDir())
+	t.Setenv("AGX_STATE_HOME", t.TempDir())
 	stdout.Reset()
 	stderr.Reset()
 	if code := runner.Run(context.Background(), []string{"plan", "--catalog", catalogPath}); code != ExitAgentUnavailable {
@@ -182,6 +183,7 @@ func planRunner(t *testing.T) (*Runner, *bytes.Buffer, *bytes.Buffer, string) {
 	t.Setenv("PATH", binDirectory+string(os.PathListSeparator)+os.Getenv("PATH"))
 	agentHome := t.TempDir()
 	t.Setenv("CODEX_HOME", agentHome)
+	t.Setenv("AGX_STATE_HOME", t.TempDir())
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	return New(stdout, stderr, "dev"), stdout, stderr, agentHome

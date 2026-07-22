@@ -176,7 +176,9 @@ skills:
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", binDirectory+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("CODEX_HOME", t.TempDir())
+	gitAgentHome := t.TempDir()
+	t.Setenv("CODEX_HOME", gitAgentHome)
+	t.Setenv("AGX_STATE_HOME", t.TempDir())
 	stdout.Reset()
 	stderr.Reset()
 	if code := runner.Run(context.Background(), []string{"plan", "--catalog", catalogPath, "--json"}); code != ExitSuccess {
@@ -188,6 +190,18 @@ skills:
 	}
 	if len(gitPlan.Changes) != 1 || gitPlan.Changes[0].Action != "add" {
 		t.Fatalf("Git plan = %#v", gitPlan)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"apply", "--catalog", catalogPath}); code != ExitSuccess {
+		t.Fatalf("Git apply code = %d, stderr = %q", code, stderr.String())
+	}
+	installedManifest, err := os.ReadFile(filepath.Join(gitAgentHome, "skills", "review", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(installedManifest) != "# Review\n" {
+		t.Fatalf("installed Git manifest = %q", installedManifest)
 	}
 
 	stdout.Reset()
