@@ -245,7 +245,7 @@ func TestRunnerApplyRejectsUnfinishedTransaction(t *testing.T) {
 			Agent:      "codex",
 			Action:     "add",
 			TargetPath: filepath.Join(root, "target"),
-			StagePath:  filepath.Join(root, "stage"),
+			StagePath:  filepath.Join(root, ".agx-stage-test", "content"),
 		}},
 	}); err != nil {
 		t.Fatal(err)

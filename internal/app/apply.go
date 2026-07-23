@@ -301,11 +301,13 @@ func prepareJournal(deployments []deployment) (*installer.Journal, error) {
 			item.backupPath = filepath.Join(backupRoot, "content")
 		}
 		journal.Targets = append(journal.Targets, installer.TargetChange{
-			Agent:      item.change.Target,
-			Action:     item.change.Action,
-			TargetPath: item.change.Path,
-			StagePath:  item.stagePath,
-			BackupPath: item.backupPath,
+			Agent:         item.change.Target,
+			Action:        item.change.Action,
+			TargetPath:    item.change.Path,
+			StagePath:     item.stagePath,
+			BackupPath:    item.backupPath,
+			DesiredDigest: item.change.DesiredDigest,
+			CurrentDigest: item.change.CurrentDigest,
 		})
 	}
 	if err := journal.Validate(); err != nil {

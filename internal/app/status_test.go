@@ -102,7 +102,7 @@ func TestRunnerStatusReportsUnfinishedTransaction(t *testing.T) {
 			Agent:      "codex",
 			Action:     "add",
 			TargetPath: filepath.Join(stateRoot, "target"),
-			StagePath:  filepath.Join(stateRoot, "stage"),
+			StagePath:  filepath.Join(stateRoot, ".agx-stage-test", "content"),
 		}},
 	}); err != nil {
 		t.Fatal(err)

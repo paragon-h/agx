@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +31,11 @@ type Entry struct {
 	Path          string `json:"path"`
 	ContentDigest string `json:"contentDigest"`
 	Artifact      string `json:"artifact,omitempty"`
+}
+
+type ApplyLock struct {
+	PID  int    `json:"pid"`
+	Path string `json:"path"`
 }
 
 func Current() (*Generation, error) {
@@ -197,6 +203,43 @@ func AcquireApplyLock() (func() error, error) {
 		return nil, err
 	}
 	return func() error { return os.Remove(path) }, nil
+}
+
+func InspectApplyLock() (*ApplyLock, error) {
+	root, err := Root()
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(root, "apply.lock")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return nil, errors.New("apply lock contains an invalid process ID")
+	}
+	return &ApplyLock{PID: pid, Path: path}, nil
+}
+
+func AcquireRepairLock(force bool) (func() error, error) {
+	lock, err := InspectApplyLock()
+	if err != nil {
+		return nil, err
+	}
+	if lock == nil {
+		return AcquireApplyLock()
+	}
+	if !force && processAlive(lock.PID) {
+		return nil, fmt.Errorf("AGX process %d may still be active; rerun with --force only after confirming it stopped", lock.PID)
+	}
+	if err := os.Remove(lock.Path); err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	return AcquireApplyLock()
 }
 
 func Root() (string, error) {

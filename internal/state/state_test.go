@@ -118,3 +118,25 @@ func TestAcquireApplyLock(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAcquireRepairLockForceReplacesLock(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGX_STATE_HOME", root)
+	if err := os.WriteFile(filepath.Join(root, "apply.lock"), []byte("2147483647\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	release, err := AcquireRepairLock(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := InspectApplyLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lock == nil || lock.PID != os.Getpid() {
+		t.Fatalf("repair lock = %#v", lock)
+	}
+	if err := release(); err != nil {
+		t.Fatal(err)
+	}
+}

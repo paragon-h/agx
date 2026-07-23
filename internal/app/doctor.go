@@ -14,11 +14,16 @@ import (
 	"github.com/paragon-h/agx/internal/adapters/claude"
 	"github.com/paragon-h/agx/internal/adapters/codex"
 	"github.com/paragon-h/agx/internal/catalog"
+	"github.com/paragon-h/agx/internal/installer"
+	"github.com/paragon-h/agx/internal/state"
 )
 
 type doctorReport struct {
-	Catalog string         `json:"catalog"`
-	Targets []doctorTarget `json:"targets"`
+	Catalog     string             `json:"catalog"`
+	Targets     []doctorTarget     `json:"targets"`
+	Transaction *installer.Journal `json:"transaction,omitempty"`
+	ApplyLock   *state.ApplyLock   `json:"applyLock,omitempty"`
+	Recovery    string             `json:"recovery,omitempty"`
 }
 
 type doctorTarget struct {
@@ -50,8 +55,20 @@ func (r *Runner) doctor(ctx context.Context, args []string) int {
 		return r.commandError(ExitInvalidConfig, "AGX_CATALOG_INVALID", err)
 	}
 	targetNames := catalogTargets(document.Catalog)
-	report := doctorReport{Catalog: document.Path, Targets: make([]doctorTarget, 0, len(targetNames))}
+	journal, err := installer.LoadJournal()
+	if err != nil {
+		return r.commandError(ExitFailure, "AGX_JOURNAL_INVALID", err)
+	}
+	applyLock, err := state.InspectApplyLock()
+	if err != nil {
+		return r.commandError(ExitFailure, "AGX_APPLY_LOCK_INVALID", err)
+	}
+	report := doctorReport{Catalog: document.Path, Targets: make([]doctorTarget, 0, len(targetNames)), Transaction: journal, ApplyLock: applyLock}
+	if journal != nil {
+		report.Recovery = "after confirming no AGX process is active, run: agx repair"
+	}
 	unavailable := false
+	repairRequired := journal != nil
 	for _, targetName := range targetNames {
 		adapter, ok := adapterFor(targetName)
 		if !ok {
@@ -97,6 +114,9 @@ func (r *Runner) doctor(ctx context.Context, args []string) int {
 	} else {
 		renderDoctorText(r.stdout, report)
 	}
+	if repairRequired {
+		return ExitFailure
+	}
 	if unavailable {
 		return ExitAgentUnavailable
 	}
@@ -140,6 +160,15 @@ func adapterFor(name string) (adapters.Adapter, bool) {
 
 func renderDoctorText(w io.Writer, report doctorReport) {
 	fmt.Fprintf(w, "catalog: %s\n", report.Catalog)
+	if report.ApplyLock != nil {
+		fmt.Fprintf(w, "apply lock: pid=%d path=%s\n", report.ApplyLock.PID, report.ApplyLock.Path)
+	}
+	if report.Transaction != nil {
+		fmt.Fprintf(w, "transaction: %s (%s)\n", report.Transaction.ID, report.Transaction.State)
+	}
+	if report.Recovery != "" {
+		fmt.Fprintf(w, "recovery: %s\n", report.Recovery)
+	}
 	for _, target := range report.Targets {
 		fmt.Fprintf(w, "target %s:\n", target.Name)
 		if target.Installed {

@@ -1,17 +1,21 @@
 package installer
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestSaveLoadAndDeleteJournal(t *testing.T) {
-	t.Setenv("AGX_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	t.Setenv("AGX_STATE_HOME", root)
 	journal := Journal{
 		ID:    "transaction-1",
 		State: StatePrepared,
 		Targets: []TargetChange{{
 			Agent:      "codex",
 			Action:     "add",
-			TargetPath: "/tmp/codex/skills/example",
-			StagePath:  "/tmp/stage/example",
+			TargetPath: filepath.Join(root, "codex", "skills", "example"),
+			StagePath:  filepath.Join(root, "codex", "skills", ".agx-stage-test", "content"),
 		}},
 	}
 	if err := SaveJournal(journal); err != nil {
