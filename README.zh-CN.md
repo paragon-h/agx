@@ -23,7 +23,7 @@ AGX 目前处于早期设计和实现阶段，CLI、Catalog Schema 和安装流�
 
 首个实现里程碑会刻意缩小范围：单个本地 Catalog、`local`/`git` Skill 来源、Codex/Claude Code Adapter、复制安装，以及 `list`、`lock`、`plan`、`apply`、`status`、`doctor` 命令。Plugins、MCP Servers、Instructions、Profiles 和多 Catalog 仍属于目标模型，但不是 Milestone 1 的交付承诺。
 
-当前原型已经可以加载并锁定单个 Catalog、诊断 Codex/Claude Code target、生成只读计划、通过 copy 模式的 `agx apply` 安装本地或 Git 来源的 Skills、使用 `agx status` 检查当前 generation，并通过 `agx rollback` 恢复已保存快照的历史 generation。Apply 会先完成全部 staging，再切换目标；受管理目录会先备份，失败时回滚，并在平台状态目录中记录 generation 元数据及回滚内容。Status 和 doctor 可以识别未完成的事务；当 journal 记录的内容摘要仍然匹配时，`agx repair` 会安全完成补偿回滚。未知现有目标仍默认视为冲突，只有内容完全一致时才能使用 `--adopt`；被外部修改的受管理目标不会被静默覆盖。引入回滚快照之前创建的 generation 无法恢复。GitHub Actions 会在 Linux、macOS 和 Windows 上执行原生测试与构建，并在 Linux 上运行 race 检查和 vet。
+当前原型已经可以加载并锁定单个 Catalog、比较锁定内容和候选 Skill、执行静态风险审计、保存与摘要绑定的本机审批，并通过 copy 模式的 `agx apply` 安装本地或已审批的 Git 来源 Skills。Git Skill 默认处于未审查状态：只有 `agx approve` 为精确 commit、内容摘要、Adapter 安全版本和策略摘要记录审批后，`plan` 和 `apply` 才会继续；任一绑定值变化都会使审批失效。Status 和 doctor 可以识别未完成的事务；当 journal 记录的内容摘要仍然匹配时，`agx repair` 会安全完成补偿回滚。未知现有目标仍默认视为冲突，只有内容完全一致时才能使用 `--adopt`；被外部修改的受管理目标不会被静默覆盖。引入回滚快照之前创建的 generation 无法恢复。GitHub Actions 会在 Linux、macOS 和 Windows 上执行原生测试与构建，并在 Linux 上运行 race 检查和 vet。
 
 ## 为什么需要 AGX
 
@@ -157,11 +157,14 @@ profiles:
 agx init
 agx catalog add personal git@github.com:user/my-agx.git
 
-# 锁定、审查并部署
+# 锁定、审查、审批并部署
 agx lock
-agx audit
-agx plan --profile default
-agx apply --profile default
+agx diff frontend-design
+agx audit frontend-design --candidate
+agx audit frontend-design
+agx approve frontend-design
+agx plan
+agx apply
 
 # 检查和更新
 agx status
@@ -214,6 +217,9 @@ go run ./cmd/agx list
 go run ./cmd/agx lock           # 存在 Git 来源时进行解析
 go run ./cmd/agx lock --frozen  # 不执行 Git 或网络解析
 go run ./cmd/agx doctor         # 只读检查 Codex/Claude target
+go run ./cmd/agx diff review    # 比较锁定内容和当前候选内容
+go run ./cmd/agx audit review   # 静态审计锁定内容
+go run ./cmd/agx approve review # 与摘要绑定的本机审批
 go run ./cmd/agx plan           # 只读目标差异预览
 go run ./cmd/agx apply          # 事务式 copy 安装
 go run ./cmd/agx status         # 当前 generation 和目标健康状态
@@ -221,7 +227,9 @@ go run ./cmd/agx rollback       # 恢复上一个已保存快照的 generation
 go run ./cmd/agx repair         # 恢复被中断的事务
 ```
 
-测试套件包含二进制级端到端流程，覆盖 lock、plan、apply、status、更新和 rollback。GitHub Actions 会在 Linux、macOS 和 Windows 上运行这套测试。
+测试套件包含二进制级端到端流程，覆盖 lock、audit、approve、plan、apply、status、更新和 rollback。GitHub Actions 会在 Linux、macOS 和 Windows 上运行这套测试。
+
+`agx diff <skill>` 会解析 Catalog 当前 revision，但不会修改 `agx.lock`。`agx audit <skill>` 默认扫描锁定内容；增加 `--candidate` 可扫描当前解析出的候选内容。高风险发现会返回退出码 `4`，并阻止审批，除非用户明确传入 `agx approve <skill> --allow-risk`。静态审计只能提供风险信号，不能保证内容安全。
 
 ## 项目边界
 
