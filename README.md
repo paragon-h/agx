@@ -23,7 +23,7 @@ AGX is currently in the early design and implementation stage. Its CLI, catalog 
 
 The first implementation milestone is intentionally narrower: one local catalog, `local` and `git` skill sources, Codex and Claude Code adapters, copy-based installation, and the `list`, `lock`, `plan`, `apply`, `status`, and `doctor` commands. Plugins, MCP servers, instructions, profiles, and multiple catalogs remain part of the target model but are not Milestone 1 commitments.
 
-The current prototype can load and lock a single Catalog, diagnose Codex or Claude Code targets, compute a read-only plan, install local or Git-backed Skills with copy-based `agx apply`, inspect the active generation with `agx status`, and restore an earlier snapshotted generation with `agx rollback`. Apply stages all generated content before switching targets, backs up managed directories, rolls back on failure, and records both generation metadata and rollback content under the platform state directory. Status and doctor detect unfinished transactions, while `agx repair` safely completes their compensation rollback when recorded content digests still match. Unknown existing targets remain conflicts unless `--adopt` is used with exactly matching content; externally modified managed targets are never silently overwritten. Generations created before rollback snapshots were introduced cannot be restored.
+The current prototype can load and lock a single Catalog, diagnose Codex or Claude Code targets, compute a read-only plan, install local or Git-backed Skills with copy-based `agx apply`, inspect the active generation with `agx status`, and restore an earlier snapshotted generation with `agx rollback`. Apply stages all generated content before switching targets, backs up managed directories, rolls back on failure, and records both generation metadata and rollback content under the platform state directory. Status and doctor detect unfinished transactions, while `agx repair` safely completes their compensation rollback when recorded content digests still match. Unknown existing targets remain conflicts unless `--adopt` is used with exactly matching content; externally modified managed targets are never silently overwritten. Generations created before rollback snapshots were introduced cannot be restored. GitHub Actions verifies native tests and builds on Linux, macOS, and Windows, with race detection and vetting on Linux.
 
 ## Why AGX
 
@@ -220,6 +220,8 @@ go run ./cmd/agx status         # active generation and target health
 go run ./cmd/agx rollback       # restore the previous snapshotted generation
 go run ./cmd/agx repair         # recover an interrupted transaction
 ```
+
+The test suite includes a binary-level end-to-end workflow covering lock, plan, apply, status, update, and rollback. The GitHub Actions workflow runs this suite on Linux, macOS, and Windows.
 
 ## Project boundary
 
