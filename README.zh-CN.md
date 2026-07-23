@@ -216,8 +216,14 @@ AGX 计划使用 Go 实现，以单一二进制提供 macOS、Linux 和 Windows 
 当前代码骨架要求 Go 1.26 或更高版本，并且没有第三方运行时依赖。
 
 ```bash
-go test ./...
-go build ./cmd/agx
+make build       # 生成 bin/agx（Windows 为 bin/agx.exe）
+make test        # 运行常规测试
+make check       # 运行 race 测试和 go vet
+make install     # 安装到 Go 二进制目录
+
+# 在本地生成单个平台发布包；GOOS 和 GOARCH 默认使用当前主机值
+make package VERSION=v0.1.0 GOOS=linux GOARCH=amd64
+make checksums
 
 # 当前目录中已有 agx.yaml 时
 go run ./cmd/agx list
@@ -237,6 +243,17 @@ go run ./cmd/agx repair         # 恢复被中断的事务
 ```
 
 测试套件包含二进制级端到端流程，覆盖 lock、audit、approve、plan、apply、status、更新和 rollback。GitHub Actions 会在 Linux、macOS 和 Windows 上运行这套测试。
+
+Build workflow 会在 `main`、Pull Request 和手动触发时运行，为 Linux、macOS、Windows 的 amd64 与 arm64 构建可下载压缩包。构建产物保留 14 天，二进制版本使用当前 Git 描述信息。
+
+发布版本时，创建并推送语义化版本标签：
+
+```bash
+git tag -a v0.1.0 -m "v0.1.0"
+git push origin v0.1.0
+```
+
+Release workflow 会构建六个平台压缩包、生成 `checksums.txt`，并创建带自动生成说明的 GitHub Release。也可以通过已有标签手动触发；重新运行时会安全替换该 Release 的附件。标签值会注入二进制，可通过 `agx version` 检查。
 
 `agx diff <skill>` 会解析 Catalog 当前 revision，但不会修改 `agx.lock`。`agx audit <skill>` 默认扫描锁定内容；增加 `--candidate` 可扫描当前解析出的候选内容。高风险发现会返回退出码 `4`，并阻止审批，除非用户明确传入 `agx approve <skill> --allow-risk`。静态审计只能提供风险信号，不能保证内容安全。
 
