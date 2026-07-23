@@ -23,7 +23,7 @@ AGX is currently in the early design and implementation stage. Its CLI, catalog 
 
 The first implementation milestone is intentionally narrower: one local catalog, `local` and `git` skill sources, Codex and Claude Code adapters, copy-based installation, and the `list`, `lock`, `plan`, `apply`, `status`, and `doctor` commands. Plugins, MCP servers, instructions, profiles, and multiple catalogs remain part of the target model but are not Milestone 1 commitments.
 
-The current prototype can load and lock a single Catalog, diagnose Codex or Claude Code targets, compute a read-only plan, install local or Git-backed Skills with copy-based `agx apply`, inspect the active generation with `agx status`, and restore an earlier snapshotted generation with `agx rollback`. Apply stages all generated content before switching targets, backs up managed directories, rolls back on failure, and records both generation metadata and rollback content under the platform state directory. Status and doctor detect unfinished transactions, while `agx repair` safely completes their compensation rollback when recorded content digests still match. Unknown existing targets remain conflicts unless `--adopt` is used with exactly matching content; externally modified managed targets are never silently overwritten. Generations created before rollback snapshots were introduced cannot be restored. GitHub Actions verifies native tests and builds on Linux, macOS, and Windows, with race detection and vetting on Linux.
+The current prototype can load and lock a single Catalog, compare locked and candidate Skill content, run static risk audits, store digest-bound local approvals, install local or approved Git-backed Skills with copy-based `agx apply`, inspect the active generation, and restore an earlier snapshot. Git Skills are unreviewed by default: `plan` and `apply` reject them until `agx approve` records approval for the exact commit, content digest, Adapter security version, and policy digest. Changing any bound value invalidates approval. Status and doctor detect unfinished transactions, while `agx repair` safely completes their compensation rollback when recorded content digests still match. Unknown existing targets remain conflicts unless `--adopt` is used with exactly matching content; externally modified managed targets are never silently overwritten. Generations created before rollback snapshots were introduced cannot be restored. GitHub Actions verifies native tests and builds on Linux, macOS, and Windows, with race detection and vetting on Linux.
 
 ## Why AGX
 
@@ -157,11 +157,14 @@ profiles:
 agx init
 agx catalog add personal git@github.com:user/my-agx.git
 
-# Lock, review, and deploy
+# Lock, review, approve, and deploy
 agx lock
-agx audit
-agx plan --profile default
-agx apply --profile default
+agx diff frontend-design
+agx audit frontend-design --candidate
+agx audit frontend-design
+agx approve frontend-design
+agx plan
+agx apply
 
 # Inspect and update
 agx status
@@ -214,6 +217,9 @@ go run ./cmd/agx list
 go run ./cmd/agx lock           # resolves Git sources when present
 go run ./cmd/agx lock --frozen  # performs no Git or network resolution
 go run ./cmd/agx doctor         # read-only Codex/Claude target checks
+go run ./cmd/agx diff review    # locked content versus the current candidate
+go run ./cmd/agx audit review   # static audit of locked content
+go run ./cmd/agx approve review # local digest-bound approval
 go run ./cmd/agx plan           # read-only target diff
 go run ./cmd/agx apply          # transactional copy installation
 go run ./cmd/agx status         # active generation and target health
@@ -221,7 +227,9 @@ go run ./cmd/agx rollback       # restore the previous snapshotted generation
 go run ./cmd/agx repair         # recover an interrupted transaction
 ```
 
-The test suite includes a binary-level end-to-end workflow covering lock, plan, apply, status, update, and rollback. The GitHub Actions workflow runs this suite on Linux, macOS, and Windows.
+The test suite includes a binary-level end-to-end workflow covering lock, audit, approve, plan, apply, status, update, and rollback. The GitHub Actions workflow runs this suite on Linux, macOS, and Windows.
+
+`agx diff <skill>` resolves the Catalog's current revision without changing `agx.lock`. `agx audit <skill>` scans locked content; add `--candidate` to scan the currently resolved candidate. High-risk findings return exit code `4` and block approval unless the user explicitly passes `agx approve <skill> --allow-risk`. Static audit results are risk signals, not a security guarantee.
 
 ## Project boundary
 
