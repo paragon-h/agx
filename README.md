@@ -23,7 +23,7 @@ AGX is currently in the early design and implementation stage. Its CLI, catalog 
 
 The first implementation milestone is intentionally narrower: one local catalog, `local` and `git` skill sources, Codex and Claude Code adapters, copy-based installation, and the `list`, `lock`, `plan`, `apply`, `status`, and `doctor` commands. Plugins, MCP servers, instructions, profiles, and multiple catalogs remain part of the target model but are not Milestone 1 commitments.
 
-The current prototype can load and lock a single Catalog, compare locked and candidate Skill content, run static risk audits, store digest-bound local approvals, install local or approved Git-backed Skills with copy-based `agx apply`, inspect the active generation, and restore an earlier snapshot. Git Skills are unreviewed by default: `plan` and `apply` reject them until `agx approve` records approval for the exact commit, content digest, Adapter security version, and policy digest. Changing any bound value invalidates approval. Status and doctor detect unfinished transactions, while `agx repair` safely completes their compensation rollback when recorded content digests still match. Unknown existing targets remain conflicts unless `--adopt` is used with exactly matching content; externally modified managed targets are never silently overwritten. Generations created before rollback snapshots were introduced cannot be restored. GitHub Actions verifies native tests and builds on Linux, macOS, and Windows, with race detection and vetting on Linux.
+The current prototype can load and lock a single Catalog, check and selectively accept source updates, compare locked and candidate Skill content, run static risk audits, store digest-bound local approvals, install local or approved Git-backed Skills with copy-based `agx apply`, inspect the active generation, and restore an earlier snapshot. Git Skills are unreviewed by default: `plan` and `apply` reject them until `agx approve` records approval for the exact commit, content digest, Adapter security version, and policy digest. Changing any bound value—including accepting an update—invalidates approval. Status and doctor detect unfinished transactions, while `agx repair` safely completes their compensation rollback when recorded content digests still match. Unknown existing targets remain conflicts unless `--adopt` is used with exactly matching content; externally modified managed targets are never silently overwritten. Generations created before rollback snapshots were introduced cannot be restored. GitHub Actions verifies native tests and builds on Linux, macOS, and Windows, with race detection and vetting on Linux.
 
 ## Why AGX
 
@@ -170,6 +170,13 @@ agx apply
 agx status
 agx doctor
 agx update --check
+agx diff frontend-design
+agx audit frontend-design --candidate
+agx update frontend-design --accept
+agx audit frontend-design
+agx approve frontend-design
+agx plan
+agx apply
 
 # Restore the previous generation
 agx rollback
@@ -220,6 +227,8 @@ go run ./cmd/agx doctor         # read-only Codex/Claude target checks
 go run ./cmd/agx diff review    # locked content versus the current candidate
 go run ./cmd/agx audit review   # static audit of locked content
 go run ./cmd/agx approve review # local digest-bound approval
+go run ./cmd/agx update --check # resolve candidates without changing the lockfile
+go run ./cmd/agx update review --accept # accept one candidate into the lockfile
 go run ./cmd/agx plan           # read-only target diff
 go run ./cmd/agx apply          # transactional copy installation
 go run ./cmd/agx status         # active generation and target health
@@ -230,6 +239,8 @@ go run ./cmd/agx repair         # recover an interrupted transaction
 The test suite includes a binary-level end-to-end workflow covering lock, audit, approve, plan, apply, status, update, and rollback. The GitHub Actions workflow runs this suite on Linux, macOS, and Windows.
 
 `agx diff <skill>` resolves the Catalog's current revision without changing `agx.lock`. `agx audit <skill>` scans locked content; add `--candidate` to scan the currently resolved candidate. High-risk findings return exit code `4` and block approval unless the user explicitly passes `agx approve <skill> --allow-risk`. Static audit results are risk signals, not a security guarantee.
+
+`agx update --check` resolves candidates for all Skills, reports changed commits and content digests, and leaves the lockfile untouched. `agx update <skill> --accept` atomically updates only the selected lock entry. It never installs the candidate or carries approval forward; Git content must be audited and approved again before `plan` or `apply` succeeds.
 
 ## Project boundary
 
