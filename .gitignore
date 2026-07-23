@@ -1,2 +1,6 @@
 # Local design draft
 /docs/design.md
+
+# Build outputs
+/bin/
+/dist/

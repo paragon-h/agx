@@ -1,0 +1,56 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  binaries:
+    name: ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Resolve version
+        shell: bash
+        run: echo "VERSION=$(git describe --tags --always --dirty)" >> "$GITHUB_ENV"
+      - name: Build package
+        run: make package VERSION="$VERSION" GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agx-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/agx_*
+          if-no-files-found: error
+          retention-days: 14
