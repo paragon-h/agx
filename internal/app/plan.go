@@ -276,7 +276,11 @@ func verifyPlanSources(ctx context.Context, document catalog.Document, locked lo
 			if lockedSkill.Source.Type != "local" || lockedSkill.Source.Path != skill.Source.Path {
 				return ExitLockOutdated, fmt.Errorf("local source for %q differs from lockfile", name)
 			}
-			digest, err := skillDigest(document.Resolve(skill.Source.Path))
+			sourcePath, err := document.Resolve(skill.Source.Path)
+			if err != nil {
+				return ExitSourceFailure, fmt.Errorf("skill %q: %w", name, err)
+			}
+			digest, err := skillDigest(sourcePath)
 			if err != nil {
 				return ExitSourceFailure, fmt.Errorf("skill %q: %w", name, err)
 			}
@@ -303,7 +307,11 @@ func verifyPlanSources(ctx context.Context, document catalog.Document, locked lo
 		}
 		overlayDigest := ""
 		if skill.Overlay != "" {
-			overlayDigest, err = contenthash.Directory(document.Resolve(skill.Overlay))
+			overlayPath, resolveErr := document.Resolve(skill.Overlay)
+			if resolveErr != nil {
+				return ExitSourceFailure, fmt.Errorf("skill %q overlay: %w", name, resolveErr)
+			}
+			overlayDigest, err = contenthash.Directory(overlayPath)
 			if err != nil {
 				return ExitSourceFailure, fmt.Errorf("skill %q overlay: %w", name, err)
 			}

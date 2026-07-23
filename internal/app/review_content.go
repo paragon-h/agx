@@ -109,7 +109,11 @@ func materializeReviewVersion(ctx context.Context, input reviewInput, candidate 
 	} else {
 		switch input.skill.Source.Type {
 		case "local":
-			err = filetree.Copy(input.document.Resolve(input.skill.Source.Path), destination)
+			var sourcePath string
+			sourcePath, err = input.document.Resolve(input.skill.Source.Path)
+			if err == nil {
+				err = filetree.Copy(sourcePath, destination)
+			}
 		case "git":
 			var result gitresolver.Result
 			result, err = gitresolver.New().MaterializeSkill(ctx, gitresolver.Request{
@@ -150,7 +154,11 @@ func materializeLockedLocal(input reviewInput, destination string) error {
 			return filetree.Copy(artifact, destination)
 		}
 	}
-	return filetree.Copy(input.document.Resolve(input.lockedSkill.Source.Path), destination)
+	sourcePath, err := input.document.Resolve(input.lockedSkill.Source.Path)
+	if err != nil {
+		return err
+	}
+	return filetree.Copy(sourcePath, destination)
 }
 
 func (v reviewVersion) Close() {

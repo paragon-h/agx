@@ -32,7 +32,36 @@ skills:
 	if got, want := document.Catalog.Metadata.Name, "personal"; got != want {
 		t.Fatalf("metadata.name = %q, want %q", got, want)
 	}
-	if got, want := document.Resolve("skills/code-review"), filepath.Join(root, "skills", "code-review"); got != want {
+	got, err := document.Resolve("skills/code-review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(root, "skills", "code-review"); got != want {
+		t.Fatalf("Resolve() = %q, want %q", got, want)
+	}
+}
+
+func TestDocumentResolveAbsolutePath(t *testing.T) {
+	document := Document{Root: t.TempDir()}
+	absolute := filepath.Join(t.TempDir(), "skills", "code-review")
+	got, err := document.Resolve(absolute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != absolute {
+		t.Fatalf("Resolve() = %q, want %q", got, absolute)
+	}
+}
+
+func TestDocumentResolveUserHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	document := Document{Root: t.TempDir()}
+	got, err := document.Resolve("~/shared-skills/code-review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, "shared-skills", "code-review"); got != want {
 		t.Fatalf("Resolve() = %q, want %q", got, want)
 	}
 }

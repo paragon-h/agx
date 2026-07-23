@@ -246,7 +246,11 @@ func stageDeployments(ctx context.Context, document catalog.Document, locked loc
 func materializeSkill(ctx context.Context, document catalog.Document, skill catalog.Skill, locked lockfile.LockedSkill, destination string) error {
 	switch skill.Source.Type {
 	case "local":
-		return filetree.Copy(document.Resolve(skill.Source.Path), destination)
+		sourcePath, err := document.Resolve(skill.Source.Path)
+		if err != nil {
+			return err
+		}
+		return filetree.Copy(sourcePath, destination)
 	case "git":
 		result, err := gitresolver.New().MaterializeSkill(ctx, gitresolver.Request{
 			Repository: locked.Source.Repository,

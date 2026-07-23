@@ -22,6 +22,21 @@ func TestLocalSourceRequiresContentDigest(t *testing.T) {
 	}
 }
 
+func TestLocalSourceAcceptsAbsoluteAndHomePaths(t *testing.T) {
+	for _, sourcePath := range []string{"/opt/agent-skills/review", "~/agent-skills/review"} {
+		t.Run(sourcePath, func(t *testing.T) {
+			skill := LockedSkill{
+				Source:        LockedSource{Type: "local", Path: sourcePath},
+				ContentDigest: testDigest,
+				LockedAt:      "2026-07-22T10:00:00Z",
+			}
+			if err := skill.Validate(); err != nil {
+				t.Fatalf("Validate() error = %v", err)
+			}
+		})
+	}
+}
+
 func TestGitSourceRejectsShortCommit(t *testing.T) {
 	skill := LockedSkill{
 		Source: LockedSource{

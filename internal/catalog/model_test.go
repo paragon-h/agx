@@ -23,7 +23,28 @@ func TestCatalogValidate(t *testing.T) {
 	}
 }
 
-func TestCatalogRejectsEscapingLocalPath(t *testing.T) {
+func TestCatalogAcceptsAbsoluteAndHomeLocalPaths(t *testing.T) {
+	for _, sourcePath := range []string{"/opt/agent-skills/review", "~/agent-skills/review"} {
+		t.Run(sourcePath, func(t *testing.T) {
+			catalog := Catalog{
+				APIVersion: APIVersion,
+				Kind:       Kind,
+				Metadata:   Metadata{Name: "personal"},
+				Skills: map[string]Skill{
+					"review": {
+						Source:  Source{Type: "local", Path: sourcePath},
+						Targets: map[string]TargetConfig{"codex": {}},
+					},
+				},
+			}
+			if err := catalog.Validate(); err != nil {
+				t.Fatalf("Validate() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestCatalogRejectsEscapingRelativeLocalPath(t *testing.T) {
 	catalog := Catalog{
 		APIVersion: APIVersion,
 		Kind:       Kind,
@@ -41,8 +62,8 @@ func TestCatalogRejectsEscapingLocalPath(t *testing.T) {
 	}
 }
 
-func TestCatalogRejectsPortablePathEscape(t *testing.T) {
-	for _, sourcePath := range []string{`..\\outside`, `C:\\outside`, `/outside`} {
+func TestCatalogRejectsInvalidLocalPath(t *testing.T) {
+	for _, sourcePath := range []string{`..\\outside`, `~other/skills`, "bad\npath"} {
 		t.Run(sourcePath, func(t *testing.T) {
 			catalog := Catalog{
 				APIVersion: APIVersion,

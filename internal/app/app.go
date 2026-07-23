@@ -178,7 +178,11 @@ func (r *Runner) verifyFrozen(document catalog.Document, path string) int {
 		if locked.Source.Type != "local" || locked.Source.Path != skill.Source.Path {
 			return r.commandError(ExitLockOutdated, "LOCK_OUTDATED", fmt.Errorf("local source for %q differs from lockfile", name))
 		}
-		contentDigest, err := skillDigest(document.Resolve(skill.Source.Path))
+		sourcePath, err := document.Resolve(skill.Source.Path)
+		if err != nil {
+			return r.commandError(ExitFailure, "AGX_SOURCE_READ_FAILED", err)
+		}
+		contentDigest, err := skillDigest(sourcePath)
 		if err != nil {
 			return r.commandError(ExitFailure, "AGX_SOURCE_READ_FAILED", err)
 		}
@@ -187,7 +191,11 @@ func (r *Runner) verifyFrozen(document catalog.Document, path string) int {
 		}
 		overlayDigest := ""
 		if skill.Overlay != "" {
-			overlayDigest, err = contenthash.Directory(document.Resolve(skill.Overlay))
+			overlayPath, resolveErr := document.Resolve(skill.Overlay)
+			if resolveErr != nil {
+				return r.commandError(ExitFailure, "AGX_SOURCE_READ_FAILED", resolveErr)
+			}
+			overlayDigest, err = contenthash.Directory(overlayPath)
 			if err != nil {
 				return r.commandError(ExitFailure, "AGX_SOURCE_READ_FAILED", err)
 			}
@@ -219,7 +227,11 @@ func buildLock(ctx context.Context, document catalog.Document, lockedAt time.Tim
 		switch skill.Source.Type {
 		case "local":
 			locked.Source = lockfile.LockedSource{Type: "local", Path: skill.Source.Path}
-			locked.ContentDigest, err = skillDigest(document.Resolve(skill.Source.Path))
+			var sourcePath string
+			sourcePath, err = document.Resolve(skill.Source.Path)
+			if err == nil {
+				locked.ContentDigest, err = skillDigest(sourcePath)
+			}
 		case "git":
 			resolved, resolveErr := gitresolver.New().ResolveSkill(ctx, gitresolver.Request{
 				Repository: skill.Source.Repository,
@@ -244,7 +256,11 @@ func buildLock(ctx context.Context, document catalog.Document, lockedAt time.Tim
 			return lockfile.Lockfile{}, 0, fmt.Errorf("skill %q: %w", name, err)
 		}
 		if skill.Overlay != "" {
-			locked.OverlayDigest, err = contenthash.Directory(document.Resolve(skill.Overlay))
+			overlayPath, resolveErr := document.Resolve(skill.Overlay)
+			if resolveErr != nil {
+				return lockfile.Lockfile{}, 0, fmt.Errorf("skill %q overlay: %w", name, resolveErr)
+			}
+			locked.OverlayDigest, err = contenthash.Directory(overlayPath)
 			if err != nil {
 				return lockfile.Lockfile{}, 0, fmt.Errorf("skill %q overlay: %w", name, err)
 			}

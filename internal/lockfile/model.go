@@ -75,8 +75,8 @@ func (s LockedSkill) Validate() error {
 	}
 	switch s.Source.Type {
 	case "local":
-		if !catalog.ValidRelativePath(s.Source.Path) {
-			return errors.New("local source requires a relative path within the catalog root")
+		if !catalog.ValidLocalPath(s.Source.Path) {
+			return errors.New("local source path must be catalog-relative, absolute, or use ~/ for the user home")
 		}
 		if s.Source.Repository != "" || s.Source.RequestedRevision != "" || s.Source.ResolvedCommit != "" {
 			return errors.New("local source cannot contain Git resolution fields")

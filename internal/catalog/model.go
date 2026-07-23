@@ -88,16 +88,16 @@ func (c Catalog) Validate() error {
 }
 
 func (s Skill) Validate() error {
-	if s.Overlay != "" && !ValidRelativePath(s.Overlay) {
-		return errors.New("overlay path must stay within the catalog root")
+	if s.Overlay != "" && !ValidLocalPath(s.Overlay) {
+		return errors.New("overlay path must be catalog-relative, absolute, or use ~/ for the user home")
 	}
 	switch s.Source.Type {
 	case "local":
 		if s.Source.Path == "" {
 			return errors.New("local source requires path")
 		}
-		if !ValidRelativePath(s.Source.Path) {
-			return errors.New("local source path must stay within the catalog root")
+		if !ValidLocalPath(s.Source.Path) {
+			return errors.New("local source path must be catalog-relative, absolute, or use ~/ for the user home")
 		}
 		if s.Source.Repository != "" || s.Source.Revision != "" {
 			return errors.New("local source cannot set repository or revision")
@@ -180,4 +180,25 @@ func ValidRelativePath(value string) bool {
 		return false
 	}
 	return !windowsVolumePattern.MatchString(cleaned)
+}
+
+func ValidLocalPath(value string) bool {
+	if value == "" || strings.ContainsAny(value, "\r\n\x00") {
+		return false
+	}
+	if value == "~" || strings.HasPrefix(value, "~/") || strings.HasPrefix(value, `~\`) {
+		return true
+	}
+	if strings.HasPrefix(value, "~") {
+		return false
+	}
+	return portableAbsolutePath(value) || ValidRelativePath(value)
+}
+
+func portableAbsolutePath(value string) bool {
+	normalized := strings.ReplaceAll(value, `\`, "/")
+	if strings.HasPrefix(normalized, "/") {
+		return true
+	}
+	return len(normalized) >= 3 && windowsVolumePattern.MatchString(normalized) && normalized[2] == '/'
 }

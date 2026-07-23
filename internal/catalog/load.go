@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -46,6 +47,23 @@ func Load(path string) (Document, error) {
 	return Document{Catalog: value, Path: absolute, Root: filepath.Dir(absolute)}, nil
 }
 
-func (d Document) Resolve(relative string) string {
-	return filepath.Join(d.Root, filepath.FromSlash(relative))
+func (d Document) Resolve(value string) (string, error) {
+	if value == "~" || strings.HasPrefix(value, "~/") || strings.HasPrefix(value, `~\`) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve user home: %w", err)
+		}
+		if value == "~" {
+			return filepath.Clean(home), nil
+		}
+		relative := strings.TrimLeft(value[1:], `/\`)
+		return filepath.Join(home, filepath.FromSlash(strings.ReplaceAll(relative, `\`, "/"))), nil
+	}
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value), nil
+	}
+	if portableAbsolutePath(value) {
+		return "", fmt.Errorf("absolute path %q is not valid on this operating system", value)
+	}
+	return filepath.Join(d.Root, filepath.FromSlash(value)), nil
 }

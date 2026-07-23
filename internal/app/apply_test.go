@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,62 @@ import (
 	"github.com/paragon-h/agx/internal/installer"
 	"github.com/paragon-h/agx/internal/state"
 )
+
+func TestRunnerApplyLocalSkillFromExpandedPath(t *testing.T) {
+	for _, mode := range []string{"absolute", "home"} {
+		t.Run(mode, func(t *testing.T) {
+			catalogRoot := t.TempDir()
+			sourceRoot := filepath.Join(t.TempDir(), "review")
+			catalogSource := sourceRoot
+			if mode == "home" {
+				home := t.TempDir()
+				t.Setenv("HOME", home)
+				t.Setenv("USERPROFILE", home)
+				sourceRoot = filepath.Join(home, "shared-skills", "review")
+				catalogSource = "~/shared-skills/review"
+			}
+			if err := os.MkdirAll(sourceRoot, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(sourceRoot, "SKILL.md"), []byte("# External review\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			catalogYAML := fmt.Sprintf(`apiVersion: agx.dev/v1alpha1
+kind: Catalog
+metadata:
+  name: personal
+skills:
+  review:
+    source:
+      type: local
+      path: %q
+    targets:
+      codex: {}
+`, catalogSource)
+			catalogPath := filepath.Join(catalogRoot, "agx.yaml")
+			if err := os.WriteFile(catalogPath, []byte(catalogYAML), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			runner, stdout, stderr, agentHome := planRunner(t)
+			if code := runner.Run(context.Background(), []string{"lock", "--catalog", catalogPath}); code != ExitSuccess {
+				t.Fatalf("lock code = %d, stderr = %q", code, stderr.String())
+			}
+			stdout.Reset()
+			stderr.Reset()
+			if code := runner.Run(context.Background(), []string{"apply", "--catalog", catalogPath}); code != ExitSuccess {
+				t.Fatalf("apply code = %d, stderr = %q", code, stderr.String())
+			}
+			installed, err := os.ReadFile(filepath.Join(agentHome, "skills", "review", "SKILL.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := string(installed), "# External review\n"; got != want {
+				t.Fatalf("installed content = %q, want %q", got, want)
+			}
+		})
+	}
+}
 
 func TestRunnerApplyAddRepeatAndUpdate(t *testing.T) {
 	root := writePlanCatalogFixture(t)

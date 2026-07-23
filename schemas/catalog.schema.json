@@ -47,7 +47,11 @@
             { "$ref": "#/$defs/gitSource" }
           ]
         },
-        "overlay": { "type": "string", "minLength": 1 },
+        "overlay": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Catalog-relative, absolute, or ~/ user-home path to local overlay content."
+        },
         "targets": {
           "type": "object",
           "minProperties": 1,
@@ -72,7 +76,11 @@
       "required": ["type", "path"],
       "properties": {
         "type": { "const": "local" },
-        "path": { "type": "string", "minLength": 1 }
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Catalog-relative, absolute, or ~/ user-home path to a local Skill."
+        }
       }
     },
     "gitSource": {
