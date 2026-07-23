@@ -21,7 +21,7 @@ Skills + Plugins + MCP Servers + Instructions
 
 AGX is currently in the early design and implementation stage. Its CLI, catalog schema, and installation workflow are not yet stable. This README describes the intended architecture; it does not imply that every feature is already available.
 
-The first implementation milestone is intentionally narrower: one local catalog, `local` and `git` skill sources, Codex and Claude Code adapters, copy-based installation, and the `list`, `lock`, `plan`, `apply`, `status`, and `doctor` commands. Plugins, MCP servers, instructions, profiles, and multiple catalogs remain part of the target model but are not Milestone 1 commitments.
+The implemented Skill scope currently includes one local catalog, `local` and `git` sources, Codex, Claude Code, Pi, and OpenCode adapters, copy-based installation, and the `list`, `lock`, `plan`, `apply`, `status`, and `doctor` commands. Plugins, MCP servers, instructions, profiles, and multiple catalogs remain part of the target model but are not yet implemented.
 
 The current prototype can load and lock a single Catalog, check and selectively accept source updates, compare locked and candidate Skill content, run static risk audits, store digest-bound local approvals, install local or approved Git-backed Skills with copy-based `agx apply`, inspect the active generation, and restore an earlier snapshot. Git Skills are unreviewed by default: `plan` and `apply` reject them until `agx approve` records approval for the exact commit, content digest, Adapter security version, and policy digest. Changing any bound value—including accepting an update—invalidates approval. Status and doctor detect unfinished transactions, while `agx repair` safely completes their compensation rollback when recorded content digests still match. Unknown existing targets remain conflicts unless `--adopt` is used with exactly matching content; externally modified managed targets are never silently overwritten. Generations created before rollback snapshots were introduced cannot be restored. GitHub Actions verifies native tests and builds on Linux, macOS, and Windows, with race detection and vetting on Linux.
 
@@ -95,6 +95,8 @@ skills:
     targets:
       codex: {}
       claude: {}
+      pi: {}
+      opencode: {}
 
   frontend-design:
     source:
@@ -195,12 +197,12 @@ Skill instructions, plugins, MCP servers, and global instructions can all influe
 - AGX only modifies paths or configuration fields it explicitly owns and never silently overwrites unknown user content.
 - Installations are committed as generations, restored on failure, and available for rollback after success.
 
-## Planned agent support
+## Supported agent targets
 
-- Codex
-- Claude Code
-- OpenCode
-- Pi
+- Codex: `${CODEX_HOME:-~/.codex}/skills`
+- Claude Code: `${CLAUDE_CONFIG_DIR:-~/.claude}/skills`
+- Pi: `${PI_CODING_AGENT_DIR:-~/.pi/agent}/skills`
+- OpenCode: `${XDG_CONFIG_HOME:-~/.config}/opencode/skills`
 
 Agent support is provided through built-in adapters. AGX will not load external binary adapters until the interface and security boundary have stabilized.
 
@@ -208,7 +210,7 @@ Agent support is provided through built-in adapters. AGX will not load external 
 
 AGX is planned as a Go application distributed as a single binary for macOS, Linux, and Windows. The intended milestones are:
 
-1. A local catalog, `local` and `git` sources, Codex and Claude adapters, and safe copy-based installation.
+1. A local catalog, `local` and `git` sources, Codex, Claude, Pi, and OpenCode adapters, and safe copy-based installation.
 2. A content-addressed store, diffs and auditing, overlays, generations, and rollback.
 3. Plugins, MCP servers, instructions, profiles, multiple catalogs, and additional agent adapters.
 4. Archive sources, signature verification, a public catalog index specification, and package-manager distribution.
@@ -231,7 +233,7 @@ make checksums
 go run ./cmd/agx list
 go run ./cmd/agx lock           # resolves Git sources when present
 go run ./cmd/agx lock --frozen  # performs no Git or network resolution
-go run ./cmd/agx doctor         # read-only Codex/Claude target checks
+go run ./cmd/agx doctor         # read-only checks for configured agent targets
 go run ./cmd/agx diff review    # locked content versus the current candidate
 go run ./cmd/agx audit review   # static audit of locked content
 go run ./cmd/agx approve review # local digest-bound approval
