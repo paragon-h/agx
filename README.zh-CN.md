@@ -25,6 +25,8 @@ AGX 目前处于早期设计和实现阶段，CLI、Catalog Schema 和安装流�
 
 当前原型已经可以加载并锁定单个 Catalog、检查并选择性接受来源更新、比较锁定内容和候选 Skill、执行静态风险审计、保存与摘要绑定的本机审批，并通过 copy 模式的 `agx apply` 安装本地或已审批的 Git 来源 Skills。Git Skill 默认处于未审查状态：只有 `agx approve` 为精确 commit、内容摘要、Adapter 安全版本和策略摘要记录审批后，`plan` 和 `apply` 才会继续；任一绑定值变化（包括接受更新）都会使审批失效。Status 和 doctor 可以识别未完成的事务；当 journal 记录的内容摘要仍然匹配时，`agx repair` 会安全完成补偿回滚。未知现有目标仍默认视为冲突，只有内容完全一致时才能使用 `--adopt`；被外部修改的受管理目标不会被静默覆盖。引入回滚快照之前创建的 generation 无法恢复。GitHub Actions 会在 Linux、macOS 和 Windows 上执行原生测试与构建，并在 Linux 上运行 race 检查和 vet。
 
+本地 Skill 和 overlay 路径可以使用相对于 Catalog 的路径、绝对路径，或者以 `~/` 表示当前用户家目录。例如，在类 Unix 系统中可以使用 `skills/review`、`~/agent-skills/review` 和 `/opt/agent-skills/review`；Windows 也支持 `C:\agent-skills\review` 这样的原生绝对路径。AGX 不展开环境变量，也不支持 `~alice` 这样的其他用户家目录。Git 来源的 `path` 仍必须相对于仓库根目录。由于原始路径表达式会保存在 `agx.lock` 中，多台机器共用同一 Catalog 时，建议优先使用 `~/`，避免使用绑定单台机器的绝对路径。
+
 ## 为什么需要 AGX
 
 不同 Agent 使用不同的全局目录、配置格式和扩展机制。直接在每个 Agent 中分别维护会导致：
