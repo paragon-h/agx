@@ -301,5 +301,5 @@ Commands:
   version   Print the AGX version
   help      Show this help
 
-Project status: early implementation; Milestone 1 commands may be incomplete.`)
+Project status: Milestone 1 is implemented; later milestone features remain under development.`)
 }
