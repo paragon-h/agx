@@ -216,8 +216,14 @@ AGX is planned as a Go application distributed as a single binary for macOS, Lin
 The current scaffold requires Go 1.26 or later and has no third-party runtime dependencies.
 
 ```bash
-go test ./...
-go build ./cmd/agx
+make build       # bin/agx (bin/agx.exe on Windows)
+make test        # regular test suite
+make check       # race-enabled tests and go vet
+make install     # install into the Go binary directory
+
+# Build one release archive locally. GOOS and GOARCH default to the host.
+make package VERSION=v0.1.0 GOOS=linux GOARCH=amd64
+make checksums
 
 # With an agx.yaml in the current directory
 go run ./cmd/agx list
@@ -237,6 +243,17 @@ go run ./cmd/agx repair         # recover an interrupted transaction
 ```
 
 The test suite includes a binary-level end-to-end workflow covering lock, audit, approve, plan, apply, status, update, and rollback. The GitHub Actions workflow runs this suite on Linux, macOS, and Windows.
+
+The Build workflow runs for `main`, pull requests, and manual dispatches. It cross-compiles downloadable archives for Linux, macOS, and Windows on both amd64 and arm64. Build artifacts are retained for 14 days and use the current Git description as the embedded version.
+
+To publish a release, create and push a semantic version tag:
+
+```bash
+git tag -a v0.1.0 -m "v0.1.0"
+git push origin v0.1.0
+```
+
+The Release workflow builds all six platform archives, generates `checksums.txt`, and creates a GitHub Release with generated notes. It can also be started manually with an existing tag; reruns safely replace release assets with the newly built files. The tag value is embedded in the binary and can be checked with `agx version`.
 
 `agx diff <skill>` resolves the Catalog's current revision without changing `agx.lock`. `agx audit <skill>` scans locked content; add `--candidate` to scan the currently resolved candidate. High-risk findings return exit code `4` and block approval unless the user explicitly passes `agx approve <skill> --allow-risk`. Static audit results are risk signals, not a security guarantee.
 
