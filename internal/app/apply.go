@@ -153,9 +153,13 @@ func (r *Runner) apply(ctx context.Context, args []string) int {
 
 	generation, err := createGeneration(*lockPath, locked, report, current)
 	if err == nil {
+		err = state.SaveArtifacts(generation)
+	}
+	if err == nil {
 		err = state.Save(generation)
 	}
 	if err != nil {
+		_ = state.DeleteArtifacts(generation.ID)
 		rollbackErr := rollbackWithJournal(deployments, journal)
 		if rollbackErr != nil {
 			journal.State = installer.StateRepairRequired
@@ -440,6 +444,7 @@ func createGeneration(lockPath string, locked lockfile.Lockfile, report planRepo
 		}
 	}
 	state.SortEntries(generation.Entries)
+	state.AssignArtifacts(generation.Entries)
 	return generation, nil
 }
 

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/paragon-h/agx/internal/contenthash"
 )
 
 const testDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -35,6 +37,53 @@ func TestSaveAndLoadCurrent(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "generations", "generation-1.json")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSaveLoadAndResolveGenerationArtifacts(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGX_STATE_HOME", root)
+	target := filepath.Join(root, "target")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "SKILL.md"), []byte("# Snapshot\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := contenthash.Directory(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := Generation{
+		ID:             "generation-snapshot",
+		CreatedAt:      "2026-07-23T10:00:00Z",
+		CatalogDigest:  testDigest,
+		LockfileDigest: testDigest,
+		Entries:        []Entry{{Target: "codex", Skill: "personal/review", Path: target, ContentDigest: digest}},
+	}
+	AssignArtifacts(generation.Entries)
+	if err := SaveArtifacts(generation); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(generation); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(generation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := ArtifactPath(loaded.ID, loaded.Entries[0].Artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifactDigest, err := contenthash.Directory(artifact); err != nil || artifactDigest != digest {
+		t.Fatalf("artifact digest = %q, err = %v", artifactDigest, err)
+	}
+	if err := DeleteArtifacts(generation.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(artifact); !os.IsNotExist(err) {
+		t.Fatalf("artifact remains after delete: %v", err)
 	}
 }
 

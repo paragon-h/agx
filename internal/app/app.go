@@ -62,6 +62,8 @@ func (r *Runner) Run(ctx context.Context, args []string) int {
 		return r.apply(ctx, args[1:])
 	case "status":
 		return r.status(args[1:])
+	case "rollback":
+		return r.rollback(args[1:])
 	default:
 		fmt.Fprintf(r.stderr, "AGX_UNKNOWN_COMMAND: unknown command %q\n", args[0])
 		fmt.Fprintln(r.stderr, "Run 'agx help' to see available commands.")
@@ -291,6 +293,7 @@ Commands:
   plan      Preview changes to agent global directories
   apply     Apply a previously reviewed plan
   status    Show the active installation generation
+  rollback  Restore a previous installation generation
   doctor    Check configuration and agent integration
   version   Print the AGX version
   help      Show this help
