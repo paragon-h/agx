@@ -71,6 +71,8 @@ skills:
 	})
 
 	runAGX(t, binary, catalogRoot, environment, "lock", "--catalog", catalogPath)
+	runAGX(t, binary, catalogRoot, environment, "audit", "review", "--catalog", catalogPath, "--json")
+	runAGX(t, binary, catalogRoot, environment, "approve", "review", "--catalog", catalogPath, "--json")
 	plan := runAGX(t, binary, catalogRoot, environment, "plan", "--catalog", catalogPath, "--json")
 	if !strings.Contains(plan, `"action":"add"`) {
 		t.Fatalf("initial plan = %s", plan)

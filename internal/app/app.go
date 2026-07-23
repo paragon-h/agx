@@ -23,6 +23,7 @@ const (
 	ExitFailure          = 1
 	ExitInvalidConfig    = 2
 	ExitLockOutdated     = 3
+	ExitPolicyDenied     = 4
 	ExitSourceFailure    = 6
 	ExitAgentUnavailable = 7
 )
@@ -66,6 +67,12 @@ func (r *Runner) Run(ctx context.Context, args []string) int {
 		return r.rollback(args[1:])
 	case "repair":
 		return r.repair(args[1:])
+	case "diff":
+		return r.diff(ctx, args[1:])
+	case "audit":
+		return r.audit(ctx, args[1:])
+	case "approve":
+		return r.approve(ctx, args[1:])
 	default:
 		fmt.Fprintf(r.stderr, "AGX_UNKNOWN_COMMAND: unknown command %q\n", args[0])
 		fmt.Fprintln(r.stderr, "Run 'agx help' to see available commands.")
@@ -297,6 +304,9 @@ Commands:
   status    Show the active installation generation
   rollback  Restore a previous installation generation
   repair    Recover an interrupted installation transaction
+  diff      Compare locked and candidate Skill content
+  audit     Scan locked or candidate Skill content for risks
+  approve   Approve the currently locked Skill content
   doctor    Check configuration and agent integration
   version   Print the AGX version
   help      Show this help

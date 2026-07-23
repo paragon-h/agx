@@ -18,6 +18,7 @@ import (
 	"github.com/paragon-h/agx/internal/installer"
 	"github.com/paragon-h/agx/internal/lockfile"
 	gitresolver "github.com/paragon-h/agx/internal/resolver/git"
+	"github.com/paragon-h/agx/internal/security"
 	"github.com/paragon-h/agx/internal/state"
 )
 
@@ -84,6 +85,9 @@ func (r *Runner) apply(ctx context.Context, args []string) int {
 	}
 	if code, err := verifyPlanSources(ctx, document, locked); err != nil {
 		return r.commandError(code, planErrorCode(code), err)
+	}
+	if err := requireApprovals(document, locked); err != nil {
+		return r.commandError(ExitPolicyDenied, "AGX_APPROVAL_REQUIRED", err)
 	}
 	current, err := state.Current()
 	if err != nil {
@@ -181,6 +185,23 @@ func (r *Runner) apply(ctx context.Context, args []string) int {
 		return r.commandError(ExitFailure, "AGX_JOURNAL_CLEANUP_FAILED", err)
 	}
 	return r.renderApplyResult(applyResult{Generation: generation.ID, Changed: true, Summary: report.Summary}, *jsonOutput)
+}
+
+func requireApprovals(document catalog.Document, locked lockfile.Lockfile) error {
+	for name, skill := range document.Catalog.Skills {
+		if skill.Source.Type != "git" || len(enabledTargets(skill.Targets)) == 0 {
+			continue
+		}
+		qualified := catalog.QualifiedName(document.Catalog.Metadata.Name, name)
+		approved, err := security.IsApproved(qualified, security.KeyFor(locked.Skills[name]))
+		if err != nil {
+			return fmt.Errorf("load approval for %s: %w", qualified, err)
+		}
+		if !approved {
+			return fmt.Errorf("%s is not approved for locked commit %s and content %s; run agx audit %s, then agx approve %s", qualified, locked.Skills[name].Source.ResolvedCommit, locked.Skills[name].ContentDigest, name, name)
+		}
+	}
+	return nil
 }
 
 func stageDeployments(ctx context.Context, document catalog.Document, locked lockfile.Lockfile, report planReport) ([]deployment, error) {

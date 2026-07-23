@@ -78,6 +78,9 @@ func (r *Runner) plan(ctx context.Context, args []string) int {
 	if code, err := verifyPlanSources(ctx, document, locked); err != nil {
 		return r.commandError(code, planErrorCode(code), err)
 	}
+	if err := requireApprovals(document, locked); err != nil {
+		return r.commandError(ExitPolicyDenied, "AGX_APPROVAL_REQUIRED", err)
+	}
 	current, err := state.Current()
 	if err != nil {
 		return r.commandError(ExitFailure, "AGX_STATE_INVALID", err)
