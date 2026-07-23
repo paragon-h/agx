@@ -31,6 +31,20 @@ func TestRunnerVersion(t *testing.T) {
 	}
 }
 
+func TestAdapterForBuiltInTargets(t *testing.T) {
+	for _, name := range []string{"codex", "claude", "pi", "opencode"} {
+		t.Run(name, func(t *testing.T) {
+			adapter, ok := adapterFor(name)
+			if !ok {
+				t.Fatalf("adapterFor(%q) not found", name)
+			}
+			if got := adapter.Name(); got != name {
+				t.Fatalf("adapter name = %q, want %q", got, name)
+			}
+		})
+	}
+}
+
 func TestRunnerListAndLockLocalCatalog(t *testing.T) {
 	root := writeLocalCatalogFixture(t)
 	catalogPath := filepath.Join(root, "agx.yaml")

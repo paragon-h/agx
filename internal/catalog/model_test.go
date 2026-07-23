@@ -23,6 +23,28 @@ func TestCatalogValidate(t *testing.T) {
 	}
 }
 
+func TestCatalogAcceptsAllBuiltInTargets(t *testing.T) {
+	catalog := Catalog{
+		APIVersion: APIVersion,
+		Kind:       Kind,
+		Metadata:   Metadata{Name: "personal"},
+		Skills: map[string]Skill{
+			"shared": {
+				Source: Source{Type: "local", Path: "skills/shared"},
+				Targets: map[string]TargetConfig{
+					"codex":    {},
+					"claude":   {},
+					"pi":       {},
+					"opencode": {},
+				},
+			},
+		},
+	}
+	if err := catalog.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
 func TestCatalogAcceptsAbsoluteAndHomeLocalPaths(t *testing.T) {
 	for _, sourcePath := range []string{"/opt/agent-skills/review", "~/agent-skills/review"} {
 		t.Run(sourcePath, func(t *testing.T) {

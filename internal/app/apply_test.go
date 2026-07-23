@@ -70,6 +70,87 @@ skills:
 	}
 }
 
+func TestRunnerApplyToAllBuiltInAgents(t *testing.T) {
+	root := t.TempDir()
+	skillRoot := filepath.Join(root, "skills", "shared")
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte("# Shared skill\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	catalogYAML := `apiVersion: agx.dev/v1alpha1
+kind: Catalog
+metadata:
+  name: personal
+skills:
+  shared:
+    source:
+      type: local
+      path: skills/shared
+    targets:
+      codex: {}
+      claude: {}
+      pi: {}
+      opencode: {}
+`
+	catalogPath := filepath.Join(root, "agx.yaml")
+	if err := os.WriteFile(catalogPath, []byte(catalogYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	binDirectory := t.TempDir()
+	for _, name := range []string{"codex", "claude", "pi", "opencode"} {
+		if err := os.WriteFile(filepath.Join(binDirectory, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", binDirectory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	piHome := t.TempDir()
+	xdgHome := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeHome)
+	t.Setenv("PI_CODING_AGENT_DIR", piHome)
+	t.Setenv("XDG_CONFIG_HOME", xdgHome)
+	t.Setenv("AGX_STATE_HOME", t.TempDir())
+
+	stdout, stderr := &strings.Builder{}, &strings.Builder{}
+	runner := New(stdout, stderr, "dev")
+	if code := runner.Run(context.Background(), []string{"lock", "--catalog", catalogPath}); code != ExitSuccess {
+		t.Fatalf("lock code = %d, stderr = %q", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"apply", "--catalog", catalogPath, "--json"}); code != ExitSuccess {
+		t.Fatalf("apply code = %d, stderr = %q", code, stderr.String())
+	}
+	var result applyResult
+	if err := json.Unmarshal([]byte(stdout.String()), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Summary.Add != 4 {
+		t.Fatalf("apply result = %#v, want four additions", result)
+	}
+
+	targets := []string{
+		filepath.Join(codexHome, "skills", "shared", "SKILL.md"),
+		filepath.Join(claudeHome, "skills", "shared", "SKILL.md"),
+		filepath.Join(piHome, "skills", "shared", "SKILL.md"),
+		filepath.Join(xdgHome, "opencode", "skills", "shared", "SKILL.md"),
+	}
+	for _, target := range targets {
+		content, err := os.ReadFile(target)
+		if err != nil {
+			t.Fatalf("read %s: %v", target, err)
+		}
+		if got, want := string(content), "# Shared skill\n"; got != want {
+			t.Fatalf("content at %s = %q, want %q", target, got, want)
+		}
+	}
+}
+
 func TestRunnerApplyAddRepeatAndUpdate(t *testing.T) {
 	root := writePlanCatalogFixture(t)
 	runner, stdout, stderr, agentHome := planRunner(t)

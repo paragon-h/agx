@@ -13,6 +13,8 @@ import (
 	"github.com/paragon-h/agx/internal/adapters"
 	"github.com/paragon-h/agx/internal/adapters/claude"
 	"github.com/paragon-h/agx/internal/adapters/codex"
+	"github.com/paragon-h/agx/internal/adapters/opencode"
+	"github.com/paragon-h/agx/internal/adapters/pi"
 	"github.com/paragon-h/agx/internal/catalog"
 	"github.com/paragon-h/agx/internal/installer"
 	"github.com/paragon-h/agx/internal/state"
@@ -153,6 +155,10 @@ func adapterFor(name string) (adapters.Adapter, bool) {
 		return codex.New(), true
 	case "claude":
 		return claude.New(), true
+	case "pi":
+		return pi.New(), true
+	case "opencode":
+		return opencode.New(), true
 	default:
 		return nil, false
 	}

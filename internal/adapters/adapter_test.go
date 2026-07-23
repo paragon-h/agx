@@ -25,6 +25,20 @@ func TestResolveHomeUsesOverride(t *testing.T) {
 	}
 }
 
+func TestResolveHomeExpandsUserHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("AGX_TEST_HOME", "~/.example")
+	got, err := ResolveHome("AGX_TEST_HOME", ".unused")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".example"); got != want {
+		t.Fatalf("ResolveHome() = %q, want %q", got, want)
+	}
+}
+
 func TestDetectExecutable(t *testing.T) {
 	directory := t.TempDir()
 	executable := filepath.Join(directory, "agx-test-agent")

@@ -330,5 +330,5 @@ Commands:
   version   Print the AGX version
   help      Show this help
 
-Project status: Milestone 1 is implemented; later milestone features remain under development.`)
+Project status: Milestone 1 Skill management and the Codex, Claude, Pi, and OpenCode adapters are implemented; later milestone features remain under development.`)
 }

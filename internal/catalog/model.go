@@ -123,7 +123,7 @@ func (s Skill) Validate() error {
 	}
 	hasEnabledTarget := false
 	for target := range s.Targets {
-		if target != "codex" && target != "claude" {
+		if target != "codex" && target != "claude" && target != "pi" && target != "opencode" {
 			return fmt.Errorf("Milestone 1 does not support target %q", target)
 		}
 		config := s.Targets[target]
