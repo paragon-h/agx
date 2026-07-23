@@ -23,7 +23,7 @@ AGX 目前处于早期设计和实现阶段，CLI、Catalog Schema 和安装流�
 
 首个实现里程碑会刻意缩小范围：单个本地 Catalog、`local`/`git` Skill 来源、Codex/Claude Code Adapter、复制安装，以及 `list`、`lock`、`plan`、`apply`、`status`、`doctor` 命令。Plugins、MCP Servers、Instructions、Profiles 和多 Catalog 仍属于目标模型，但不是 Milestone 1 的交付承诺。
 
-当前原型已经可以加载并锁定单个 Catalog、诊断 Codex/Claude Code target、生成只读计划、通过 copy 模式的 `agx apply` 安装本地或 Git 来源的 Skills、使用 `agx status` 检查当前 generation，并通过 `agx rollback` 恢复已保存快照的历史 generation。Apply 会先完成全部 staging，再切换目标；受管理目录会先备份，失败时回滚，并在平台状态目录中记录 generation 元数据及回滚内容。Status 可以识别缺失或被外部修改的受管理目标，以及未完成的事务。未知现有目标仍默认视为冲突，只有内容完全一致时才能使用 `--adopt`；被外部修改的受管理目标不会被静默覆盖。引入回滚快照之前创建的 generation 无法恢复。
+当前原型已经可以加载并锁定单个 Catalog、诊断 Codex/Claude Code target、生成只读计划、通过 copy 模式的 `agx apply` 安装本地或 Git 来源的 Skills、使用 `agx status` 检查当前 generation，并通过 `agx rollback` 恢复已保存快照的历史 generation。Apply 会先完成全部 staging，再切换目标；受管理目录会先备份，失败时回滚，并在平台状态目录中记录 generation 元数据及回滚内容。Status 和 doctor 可以识别未完成的事务；当 journal 记录的内容摘要仍然匹配时，`agx repair` 会安全完成补偿回滚。未知现有目标仍默认视为冲突，只有内容完全一致时才能使用 `--adopt`；被外部修改的受管理目标不会被静默覆盖。引入回滚快照之前创建的 generation 无法恢复。
 
 ## 为什么需要 AGX
 
@@ -218,6 +218,7 @@ go run ./cmd/agx plan           # 只读目标差异预览
 go run ./cmd/agx apply          # 事务式 copy 安装
 go run ./cmd/agx status         # 当前 generation 和目标健康状态
 go run ./cmd/agx rollback       # 恢复上一个已保存快照的 generation
+go run ./cmd/agx repair         # 恢复被中断的事务
 ```
 
 ## 项目边界
