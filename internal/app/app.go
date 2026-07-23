@@ -73,6 +73,8 @@ func (r *Runner) Run(ctx context.Context, args []string) int {
 		return r.audit(ctx, args[1:])
 	case "approve":
 		return r.approve(ctx, args[1:])
+	case "update":
+		return r.update(ctx, args[1:])
 	default:
 		fmt.Fprintf(r.stderr, "AGX_UNKNOWN_COMMAND: unknown command %q\n", args[0])
 		fmt.Fprintln(r.stderr, "Run 'agx help' to see available commands.")
@@ -307,6 +309,7 @@ Commands:
   diff      Compare locked and candidate Skill content
   audit     Scan locked or candidate Skill content for risks
   approve   Approve the currently locked Skill content
+  update    Check or accept newer Skill source content
   doctor    Check configuration and agent integration
   version   Print the AGX version
   help      Show this help

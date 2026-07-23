@@ -86,7 +86,11 @@ skills:
 	assertHealthyStatus(t, runAGX(t, binary, catalogRoot, environment, "status", "--json"), first.Generation)
 
 	writeFile(t, manifest, "# Version two\n")
-	runAGX(t, binary, catalogRoot, environment, "lock", "--catalog", catalogPath)
+	updateCheck := runAGX(t, binary, catalogRoot, environment, "update", "--check", "--catalog", catalogPath, "--json")
+	if !strings.Contains(updateCheck, `"changed":1`) {
+		t.Fatalf("update check = %s", updateCheck)
+	}
+	runAGX(t, binary, catalogRoot, environment, "update", "review", "--accept", "--catalog", catalogPath, "--json")
 	secondOutput := runAGX(t, binary, catalogRoot, environment, "apply", "--catalog", catalogPath, "--json")
 	var second applyResult
 	decodeJSON(t, secondOutput, &second)
