@@ -21,7 +21,7 @@ Skills + Plugins + MCP Servers + Instructions
 
 AGX 目前处于早期设计和实现阶段，CLI、Catalog Schema 和安装流程尚未对外稳定。本 README 描述的是目标架构，不代表所有功能已经可用。
 
-首个实现里程碑会刻意缩小范围：单个本地 Catalog、`local`/`git` Skill 来源、Codex/Claude Code Adapter、复制安装，以及 `list`、`lock`、`plan`、`apply`、`status`、`doctor` 命令。Plugins、MCP Servers、Instructions、Profiles 和多 Catalog 仍属于目标模型，但不是 Milestone 1 的交付承诺。
+当前已经实现的 Skill 范围包括：单个本地 Catalog、`local`/`git` 来源、Codex、Claude Code、Pi、OpenCode Adapter、复制安装，以及 `list`、`lock`、`plan`、`apply`、`status`、`doctor` 命令。Plugins、MCP Servers、Instructions、Profiles 和多 Catalog 仍属于目标模型，尚未实现。
 
 当前原型已经可以加载并锁定单个 Catalog、检查并选择性接受来源更新、比较锁定内容和候选 Skill、执行静态风险审计、保存与摘要绑定的本机审批，并通过 copy 模式的 `agx apply` 安装本地或已审批的 Git 来源 Skills。Git Skill 默认处于未审查状态：只有 `agx approve` 为精确 commit、内容摘要、Adapter 安全版本和策略摘要记录审批后，`plan` 和 `apply` 才会继续；任一绑定值变化（包括接受更新）都会使审批失效。Status 和 doctor 可以识别未完成的事务；当 journal 记录的内容摘要仍然匹配时，`agx repair` 会安全完成补偿回滚。未知现有目标仍默认视为冲突，只有内容完全一致时才能使用 `--adopt`；被外部修改的受管理目标不会被静默覆盖。引入回滚快照之前创建的 generation 无法恢复。GitHub Actions 会在 Linux、macOS 和 Windows 上执行原生测试与构建，并在 Linux 上运行 race 检查和 vet。
 
@@ -95,6 +95,8 @@ skills:
     targets:
       codex: {}
       claude: {}
+      pi: {}
+      opencode: {}
 
   frontend-design:
     source:
@@ -195,12 +197,12 @@ Skill 指令、Plugin、MCP 和全局 Instructions 都可能影响 Agent 的工�
 - 只修改 AGX 明确拥有的路径或配置字段，不静默覆盖未知用户内容。
 - 安装以 generation 为单位进行，失败时恢复，成功后可回滚。
 
-## 计划支持的 Agent
+## 已支持的 Agent Target
 
-- Codex
-- Claude Code
-- OpenCode
-- Pi
+- Codex：`${CODEX_HOME:-~/.codex}/skills`
+- Claude Code：`${CLAUDE_CONFIG_DIR:-~/.claude}/skills`
+- Pi：`${PI_CODING_AGENT_DIR:-~/.pi/agent}/skills`
+- OpenCode：`${XDG_CONFIG_HOME:-~/.config}/opencode/skills`
 
 Agent 的支持由内置 Adapter 提供。在接口和安全边界稳定前，AGX 不加载外部二进制 Adapter。
 
@@ -208,7 +210,7 @@ Agent 的支持由内置 Adapter 提供。在接口和安全边界稳定前，AG
 
 AGX 计划使用 Go 实现，以单一二进制提供 macOS、Linux 和 Windows 支持。预期的主要阶段包括：
 
-1. 本地 Catalog、`local`/`git` 来源、Codex/Claude Adapter 和安全复制安装。
+1. 本地 Catalog、`local`/`git` 来源、Codex、Claude、Pi、OpenCode Adapter 和安全复制安装。
 2. 内容寻址 Store、差异与审计、Overlay、Generation 和回滚。
 3. Plugins、MCP、Instructions、Profiles、多 Catalog 及更多 Agent Adapter。
 4. Archive 来源、签名验证、公共 Catalog 索引和包管理器分发。
@@ -231,7 +233,7 @@ make checksums
 go run ./cmd/agx list
 go run ./cmd/agx lock           # 存在 Git 来源时进行解析
 go run ./cmd/agx lock --frozen  # 不执行 Git 或网络解析
-go run ./cmd/agx doctor         # 只读检查 Codex/Claude target
+go run ./cmd/agx doctor         # 只读检查 Catalog 中配置的 Agent target
 go run ./cmd/agx diff review    # 比较锁定内容和当前候选内容
 go run ./cmd/agx audit review   # 静态审计锁定内容
 go run ./cmd/agx approve review # 与摘要绑定的本机审批
