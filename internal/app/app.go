@@ -14,7 +14,9 @@ import (
 
 	"github.com/paragon-h/agx/internal/catalog"
 	"github.com/paragon-h/agx/internal/contenthash"
+	"github.com/paragon-h/agx/internal/filetree"
 	"github.com/paragon-h/agx/internal/lockfile"
+	"github.com/paragon-h/agx/internal/overlay"
 	gitresolver "github.com/paragon-h/agx/internal/resolver/git"
 )
 
@@ -173,27 +175,30 @@ func (r *Runner) verifyFrozen(document catalog.Document, path string) int {
 			if locked.Source.Type != "git" || locked.Source.Repository != skill.Source.Repository || locked.Source.RequestedRevision != skill.Source.Revision || locked.Source.Path != skill.Source.Path {
 				return r.commandError(ExitLockOutdated, "LOCK_OUTDATED", fmt.Errorf("git source for %q differs from lockfile", name))
 			}
-			continue
-		}
-		if locked.Source.Type != "local" || locked.Source.Path != skill.Source.Path {
-			return r.commandError(ExitLockOutdated, "LOCK_OUTDATED", fmt.Errorf("local source for %q differs from lockfile", name))
-		}
-		sourcePath, err := document.Resolve(skill.Source.Path)
-		if err != nil {
-			return r.commandError(ExitFailure, "AGX_SOURCE_READ_FAILED", err)
-		}
-		contentDigest, err := skillDigest(sourcePath)
-		if err != nil {
-			return r.commandError(ExitFailure, "AGX_SOURCE_READ_FAILED", err)
-		}
-		if contentDigest != locked.ContentDigest {
-			return r.commandError(ExitLockOutdated, "LOCK_OUTDATED", fmt.Errorf("local source for %q changed", name))
+		} else {
+			if locked.Source.Type != "local" || locked.Source.Path != skill.Source.Path {
+				return r.commandError(ExitLockOutdated, "LOCK_OUTDATED", fmt.Errorf("local source for %q differs from lockfile", name))
+			}
+			sourcePath, err := document.Resolve(skill.Source.Path)
+			if err != nil {
+				return r.commandError(ExitFailure, "AGX_SOURCE_READ_FAILED", err)
+			}
+			contentDigest, err := skillDigest(sourcePath)
+			if err != nil {
+				return r.commandError(ExitFailure, "AGX_SOURCE_READ_FAILED", err)
+			}
+			if contentDigest != locked.ContentDigest {
+				return r.commandError(ExitLockOutdated, "LOCK_OUTDATED", fmt.Errorf("local source for %q changed", name))
+			}
 		}
 		overlayDigest := ""
 		if skill.Overlay != "" {
 			overlayPath, resolveErr := document.Resolve(skill.Overlay)
 			if resolveErr != nil {
 				return r.commandError(ExitFailure, "AGX_SOURCE_READ_FAILED", resolveErr)
+			}
+			if err := overlay.Validate(overlayPath); err != nil {
+				return r.commandError(ExitFailure, "AGX_SOURCE_READ_FAILED", fmt.Errorf("overlay for %q: %w", name, err))
 			}
 			overlayDigest, err = contenthash.Directory(overlayPath)
 			if err != nil {
@@ -260,9 +265,15 @@ func buildLock(ctx context.Context, document catalog.Document, lockedAt time.Tim
 			if resolveErr != nil {
 				return lockfile.Lockfile{}, 0, fmt.Errorf("skill %q overlay: %w", name, resolveErr)
 			}
+			if err := overlay.Validate(overlayPath); err != nil {
+				return lockfile.Lockfile{}, 0, fmt.Errorf("skill %q overlay: %w", name, err)
+			}
 			locked.OverlayDigest, err = contenthash.Directory(overlayPath)
 			if err != nil {
 				return lockfile.Lockfile{}, 0, fmt.Errorf("skill %q overlay: %w", name, err)
+			}
+			if err := validateOverlayApplication(ctx, document, skill, locked, overlayPath); err != nil {
+				return lockfile.Lockfile{}, 0, fmt.Errorf("skill %q overlay cannot be applied: %w", name, err)
 			}
 		}
 		if previous != nil {
@@ -273,6 +284,47 @@ func buildLock(ctx context.Context, document catalog.Document, lockedAt time.Tim
 		value.Skills[name] = locked
 	}
 	return value, len(value.Skills), nil
+}
+
+func validateOverlayApplication(ctx context.Context, document catalog.Document, skill catalog.Skill, locked lockfile.LockedSkill, overlayPath string) error {
+	temporary, err := os.MkdirTemp("", "agx-overlay-lock-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(temporary)
+	destination := filepath.Join(temporary, "content")
+	switch skill.Source.Type {
+	case "local":
+		sourcePath, err := document.Resolve(skill.Source.Path)
+		if err != nil {
+			return err
+		}
+		if err := filetree.Copy(sourcePath, destination); err != nil {
+			return err
+		}
+		materializedDigest, err := contenthash.Directory(destination)
+		if err != nil {
+			return err
+		}
+		if materializedDigest != locked.ContentDigest {
+			return errors.New("materialized local Skill does not match lockfile content")
+		}
+	case "git":
+		result, err := gitresolver.New().MaterializeSkill(ctx, gitresolver.Request{
+			Repository: locked.Source.Repository,
+			Revision:   locked.Source.ResolvedCommit,
+			Path:       locked.Source.Path,
+		}, destination)
+		if err != nil {
+			return err
+		}
+		if result.ResolvedCommit != locked.Source.ResolvedCommit || result.ContentDigest != locked.ContentDigest {
+			return errors.New("materialized Git Skill does not match lockfile")
+		}
+	default:
+		return fmt.Errorf("unsupported source type %q", skill.Source.Type)
+	}
+	return overlay.Apply(destination, overlayPath)
 }
 
 func helpRequested(args []string) bool {

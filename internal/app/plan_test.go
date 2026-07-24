@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/paragon-h/agx/internal/lockfile"
 )
 
 func TestRunnerPlanAddsWithoutWritingTargets(t *testing.T) {
@@ -105,6 +107,198 @@ func TestRunnerPlanRejectsSourceDrift(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "LOCK_OUTDATED") {
 		t.Fatalf("stderr = %q, want LOCK_OUTDATED", stderr.String())
+	}
+}
+
+func TestRunnerAppliesLockedOverlay(t *testing.T) {
+	root := writePlanCatalogFixture(t)
+	skillRoot := filepath.Join(root, "skills", "code-review")
+	if err := os.MkdirAll(filepath.Join(skillRoot, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillRoot, "scripts", "upload.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	overlayRoot := filepath.Join(root, "overlays", "code-review")
+	if err := os.MkdirAll(overlayRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(overlayRoot, "overlay.yaml"), []byte(`apiVersion: agx.dev/v1alpha1
+kind: Overlay
+content:
+  prepend: prepend.md
+disableScripts:
+  - scripts/upload.sh
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(overlayRoot, "prepend.md"), []byte("Local policy\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	catalogPath := filepath.Join(root, "agx.yaml")
+	catalogYAML := `apiVersion: agx.dev/v1alpha1
+kind: Catalog
+metadata:
+  name: personal
+skills:
+  code-review:
+    source:
+      type: local
+      path: skills/code-review
+    overlay: overlays/code-review
+    targets:
+      codex: {}
+`
+	if err := os.WriteFile(catalogPath, []byte(catalogYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner, stdout, stderr, agentHome := planRunner(t)
+	if code := runner.Run(context.Background(), []string{"lock", "--catalog", catalogPath}); code != ExitSuccess {
+		t.Fatalf("lock code = %d, stderr = %q", code, stderr.String())
+	}
+	locked, err := lockfile.Load(filepath.Join(root, "agx.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if locked.Skills["code-review"].OverlayDigest == "" {
+		t.Fatal("overlay digest was not locked")
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"plan", "--catalog", catalogPath, "--json"}); code != ExitSuccess {
+		t.Fatalf("plan code = %d, stderr = %q", code, stderr.String())
+	}
+	var report planReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Changes) != 1 || report.Changes[0].DesiredDigest == locked.Skills["code-review"].ContentDigest {
+		t.Fatalf("plan did not use rendered overlay digest: %#v", report)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"apply", "--catalog", catalogPath}); code != ExitSuccess {
+		t.Fatalf("apply code = %d, stderr = %q", code, stderr.String())
+	}
+	installedRoot := filepath.Join(agentHome, "skills", "code-review")
+	data, err := os.ReadFile(filepath.Join(installedRoot, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(data), "Local policy\n# Code review\n"; got != want {
+		t.Fatalf("installed SKILL.md = %q, want %q", got, want)
+	}
+	if _, err := os.Lstat(filepath.Join(installedRoot, "scripts", "upload.sh")); !os.IsNotExist(err) {
+		t.Fatalf("disabled script still exists: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(overlayRoot, "prepend.md"), []byte("Changed policy\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"lock", "--catalog", catalogPath, "--frozen"}); code != ExitLockOutdated {
+		t.Fatalf("changed overlay frozen lock code = %d, want %d; stderr = %q", code, ExitLockOutdated, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"audit", "code-review", "--catalog", catalogPath}); code != ExitLockOutdated {
+		t.Fatalf("changed overlay audit code = %d, want %d; stderr = %q", code, ExitLockOutdated, stderr.String())
+	}
+}
+
+func TestRunnerLockRejectsUnusableOverlayWithoutReplacingLockfile(t *testing.T) {
+	root := writePlanCatalogFixture(t)
+	overlayRoot := filepath.Join(root, "overlays", "code-review")
+	if err := os.MkdirAll(overlayRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(overlayRoot, "overlay.yaml"), []byte(`apiVersion: agx.dev/v1alpha1
+kind: Overlay
+content:
+  prepend: missing.md
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	catalogPath := filepath.Join(root, "agx.yaml")
+	if err := os.WriteFile(catalogPath, []byte(`apiVersion: agx.dev/v1alpha1
+kind: Catalog
+metadata:
+  name: personal
+skills:
+  code-review:
+    source:
+      type: local
+      path: skills/code-review
+    overlay: overlays/code-review
+    targets:
+      codex: {}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner, _, stderr, _ := planRunner(t)
+	if code := runner.Run(context.Background(), []string{"lock", "--catalog", catalogPath}); code != ExitSourceFailure {
+		t.Fatalf("invalid overlay lock code = %d, want %d; stderr = %q", code, ExitSourceFailure, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, "agx.lock")); !os.IsNotExist(err) {
+		t.Fatalf("invalid overlay created lockfile: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(overlayRoot, "missing.md"), []byte("Policy\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"lock", "--catalog", catalogPath}); code != ExitSuccess {
+		t.Fatalf("valid overlay lock code = %d, stderr = %q", code, stderr.String())
+	}
+	lockPath := filepath.Join(root, "agx.lock")
+	before, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(overlayRoot, "overlay.yaml"), []byte(`apiVersion: agx.dev/v1alpha1
+kind: Overlay
+content:
+  prepend: missing.md
+disableScripts:
+  - scripts/missing.sh
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"lock", "--catalog", catalogPath}); code != ExitSourceFailure {
+		t.Fatalf("unapplicable overlay lock code = %d, want %d; stderr = %q", code, ExitSourceFailure, stderr.String())
+	}
+	after, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("unapplicable overlay lock replaced the existing lockfile")
+	}
+	if err := os.WriteFile(filepath.Join(overlayRoot, "overlay.yaml"), []byte(`apiVersion: agx.dev/v1alpha1
+kind: Overlay
+content:
+  prepend: missing.md
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(overlayRoot, "missing.md")); err != nil {
+		t.Fatal(err)
+	}
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"lock", "--catalog", catalogPath}); code != ExitSourceFailure {
+		t.Fatalf("missing overlay content lock code = %d, want %d; stderr = %q", code, ExitSourceFailure, stderr.String())
+	}
+	after, err = os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("failed overlay lock replaced the existing lockfile")
 	}
 }
 

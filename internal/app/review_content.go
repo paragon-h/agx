@@ -11,6 +11,7 @@ import (
 	"github.com/paragon-h/agx/internal/contenthash"
 	"github.com/paragon-h/agx/internal/filetree"
 	"github.com/paragon-h/agx/internal/lockfile"
+	"github.com/paragon-h/agx/internal/overlay"
 	gitresolver "github.com/paragon-h/agx/internal/resolver/git"
 	"github.com/paragon-h/agx/internal/state"
 )
@@ -23,10 +24,12 @@ type reviewInput struct {
 }
 
 type reviewVersion struct {
-	Root    string
-	Digest  string
-	Commit  string
-	cleanup func()
+	Root          string
+	Digest        string
+	SourceDigest  string
+	OverlayDigest string
+	Commit        string
+	cleanup       func()
 }
 
 func loadReviewInput(catalogPath, lockPath, skillName string) (reviewInput, error) {
@@ -64,8 +67,22 @@ func loadReviewInput(catalogPath, lockPath, skillName string) (reviewInput, erro
 	if !ok {
 		return reviewInput{}, fmt.Errorf("skill %q is missing from lockfile", skillName)
 	}
+	overlayDigest := ""
 	if skill.Overlay != "" {
-		return reviewInput{}, fmt.Errorf("skill %q uses an overlay; overlay review is not implemented yet", skillName)
+		overlayPath, err := document.Resolve(skill.Overlay)
+		if err != nil {
+			return reviewInput{}, fmt.Errorf("resolve overlay for %q: %w", skillName, err)
+		}
+		if err := overlay.Validate(overlayPath); err != nil {
+			return reviewInput{}, fmt.Errorf("validate overlay for %q: %w", skillName, err)
+		}
+		overlayDigest, err = contenthash.Directory(overlayPath)
+		if err != nil {
+			return reviewInput{}, fmt.Errorf("read overlay for %q: %w", skillName, err)
+		}
+	}
+	if overlayDigest != lockedSkill.OverlayDigest {
+		return reviewInput{}, fmt.Errorf("overlay for %q differs from lockfile; run agx lock before review", skillName)
 	}
 	return reviewInput{
 		document:      document,
@@ -102,8 +119,8 @@ func materializeReviewVersion(ctx context.Context, input reviewInput, candidate 
 			cleanup()
 			return reviewVersion{}, err
 		}
-		version.Digest, err = contenthash.Directory(destination)
-		if err == nil && version.Digest != input.lockedSkill.ContentDigest {
+		version.SourceDigest, err = contenthash.Directory(destination)
+		if err == nil && version.SourceDigest != input.lockedSkill.ContentDigest {
 			err = fmt.Errorf("locked content for %s is unavailable or changed", input.qualifiedName)
 		}
 	} else {
@@ -122,14 +139,34 @@ func materializeReviewVersion(ctx context.Context, input reviewInput, candidate 
 				Path:       input.skill.Source.Path,
 			}, destination)
 			version.Commit = result.ResolvedCommit
-			version.Digest = result.ContentDigest
+			version.SourceDigest = result.ContentDigest
 		default:
 			err = fmt.Errorf("unsupported source type %q", input.skill.Source.Type)
 		}
-		if err == nil && version.Digest == "" {
-			version.Digest, err = contenthash.Directory(destination)
+		if err == nil && version.SourceDigest == "" {
+			version.SourceDigest, err = contenthash.Directory(destination)
 		}
 	}
+	if err != nil {
+		cleanup()
+		return reviewVersion{}, err
+	}
+	if input.skill.Overlay != "" {
+		overlayPath, resolveErr := input.document.Resolve(input.skill.Overlay)
+		if resolveErr != nil {
+			cleanup()
+			return reviewVersion{}, resolveErr
+		}
+		version.OverlayDigest, err = contenthash.Directory(overlayPath)
+		if err == nil {
+			err = overlay.Apply(destination, overlayPath)
+		}
+		if err != nil {
+			cleanup()
+			return reviewVersion{}, fmt.Errorf("apply overlay for %s: %w", input.qualifiedName, err)
+		}
+	}
+	version.Digest, err = contenthash.Directory(destination)
 	if err != nil {
 		cleanup()
 		return reviewVersion{}, err
@@ -142,7 +179,7 @@ func materializeLockedLocal(input reviewInput, destination string) error {
 	if err != nil {
 		return err
 	}
-	if current != nil {
+	if current != nil && input.skill.Overlay == "" {
 		for _, entry := range current.Entries {
 			if entry.Skill != input.qualifiedName || entry.ContentDigest != input.lockedSkill.ContentDigest || entry.Artifact == "" {
 				continue

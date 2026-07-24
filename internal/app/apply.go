@@ -17,6 +17,7 @@ import (
 	"github.com/paragon-h/agx/internal/filetree"
 	"github.com/paragon-h/agx/internal/installer"
 	"github.com/paragon-h/agx/internal/lockfile"
+	"github.com/paragon-h/agx/internal/overlay"
 	gitresolver "github.com/paragon-h/agx/internal/resolver/git"
 	"github.com/paragon-h/agx/internal/security"
 	"github.com/paragon-h/agx/internal/state"
@@ -244,13 +245,20 @@ func stageDeployments(ctx context.Context, document catalog.Document, locked loc
 }
 
 func materializeSkill(ctx context.Context, document catalog.Document, skill catalog.Skill, locked lockfile.LockedSkill, destination string) error {
+	var sourceDigest string
 	switch skill.Source.Type {
 	case "local":
 		sourcePath, err := document.Resolve(skill.Source.Path)
 		if err != nil {
 			return err
 		}
-		return filetree.Copy(sourcePath, destination)
+		if err := filetree.Copy(sourcePath, destination); err != nil {
+			return err
+		}
+		sourceDigest, err = contenthash.Directory(destination)
+		if err != nil {
+			return err
+		}
 	case "git":
 		result, err := gitresolver.New().MaterializeSkill(ctx, gitresolver.Request{
 			Repository: locked.Source.Repository,
@@ -263,10 +271,23 @@ func materializeSkill(ctx context.Context, document catalog.Document, skill cata
 		if result.ResolvedCommit != locked.Source.ResolvedCommit || result.ContentDigest != locked.ContentDigest {
 			return errors.New("materialized Git Skill does not match lockfile")
 		}
-		return nil
+		sourceDigest = result.ContentDigest
 	default:
 		return fmt.Errorf("unsupported source type %q", skill.Source.Type)
 	}
+	if sourceDigest != locked.ContentDigest {
+		return errors.New("materialized Skill does not match lockfile content")
+	}
+	if skill.Overlay != "" {
+		overlayPath, err := document.Resolve(skill.Overlay)
+		if err != nil {
+			return err
+		}
+		if err := overlay.Apply(destination, overlayPath); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func preflightDeployments(deployments []deployment) error {

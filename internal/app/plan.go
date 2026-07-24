@@ -15,6 +15,7 @@ import (
 	"github.com/paragon-h/agx/internal/catalog"
 	"github.com/paragon-h/agx/internal/contenthash"
 	"github.com/paragon-h/agx/internal/lockfile"
+	"github.com/paragon-h/agx/internal/overlay"
 	gitresolver "github.com/paragon-h/agx/internal/resolver/git"
 	"github.com/paragon-h/agx/internal/state"
 )
@@ -156,14 +157,22 @@ func buildPlan(ctx context.Context, document catalog.Document, locked lockfile.L
 
 	for _, name := range sortedSkillNames(document.Catalog) {
 		skill := document.Catalog.Skills[name]
-		if skill.Overlay != "" {
-			return planReport{}, ExitFailure, fmt.Errorf("skill %q uses an overlay; overlay rendering is not implemented yet", name)
-		}
 		lockedSkill := locked.Skills[name]
+		rendered, err := materializeReviewVersion(ctx, reviewInput{
+			document:      document,
+			qualifiedName: catalog.QualifiedName(document.Catalog.Metadata.Name, name),
+			skill:         skill,
+			lockedSkill:   lockedSkill,
+		}, false)
+		if err != nil {
+			return planReport{}, ExitSourceFailure, fmt.Errorf("render skill %q: %w", name, err)
+		}
+		desiredDigest := rendered.Digest
+		rendered.Close()
 		for _, targetName := range enabledTargets(skill.Targets) {
 			targetPath := filepath.Join(targetPaths[targetName], name)
 			managedEntry, isManaged := managed[filepath.Clean(targetPath)]
-			change := inspectPlanTarget(targetName, catalog.QualifiedName(document.Catalog.Metadata.Name, name), targetPath, lockedSkill.ContentDigest, adopt, isManaged, managedEntry)
+			change := inspectPlanTarget(targetName, catalog.QualifiedName(document.Catalog.Metadata.Name, name), targetPath, desiredDigest, adopt, isManaged, managedEntry)
 			report.Changes = append(report.Changes, change)
 			switch change.Action {
 			case "add":
@@ -310,6 +319,9 @@ func verifyPlanSources(ctx context.Context, document catalog.Document, locked lo
 			overlayPath, resolveErr := document.Resolve(skill.Overlay)
 			if resolveErr != nil {
 				return ExitSourceFailure, fmt.Errorf("skill %q overlay: %w", name, resolveErr)
+			}
+			if err := overlay.Validate(overlayPath); err != nil {
+				return ExitSourceFailure, fmt.Errorf("skill %q overlay: %w", name, err)
 			}
 			overlayDigest, err = contenthash.Directory(overlayPath)
 			if err != nil {

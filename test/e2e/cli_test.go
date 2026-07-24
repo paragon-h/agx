@@ -114,6 +114,98 @@ skills:
 	assertHealthyStatus(t, runAGX(t, binary, catalogRoot, environment, "status", "--json"), rollback.Generation)
 }
 
+func TestCLIEndToEndOverlayUpdateAndRollback(t *testing.T) {
+	repository := repositoryRoot(t)
+	workspace := t.TempDir()
+	binary := filepath.Join(workspace, executableName("agx"))
+	runBuild(t, repository, binary)
+
+	binDir := filepath.Join(workspace, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	copyExecutable(t, binary, filepath.Join(binDir, executableName("codex")))
+	catalogRoot := filepath.Join(workspace, "catalog")
+	skillRoot := filepath.Join(catalogRoot, "skills", "review")
+	writeFile(t, filepath.Join(skillRoot, "SKILL.md"), "# Review\n")
+	writeFile(t, filepath.Join(skillRoot, "scripts", "upload.sh"), "#!/bin/sh\n")
+	overlayRoot := filepath.Join(catalogRoot, "overlays", "review")
+	writeFile(t, filepath.Join(overlayRoot, "overlay.yaml"), `apiVersion: agx.dev/v1alpha1
+kind: Overlay
+content:
+  prepend: prepend.md
+  append: append.md
+disableScripts:
+  - scripts/upload.sh
+`)
+	prependPath := filepath.Join(overlayRoot, "prepend.md")
+	writeFile(t, prependPath, "Policy one\n")
+	writeFile(t, filepath.Join(overlayRoot, "append.md"), "Footer\n")
+	catalogPath := filepath.Join(catalogRoot, "agx.yaml")
+	writeFile(t, catalogPath, `apiVersion: agx.dev/v1alpha1
+kind: Catalog
+metadata:
+  name: personal
+skills:
+  review:
+    source:
+      type: local
+      path: skills/review
+    overlay: overlays/review
+    targets:
+      codex: {}
+`)
+
+	agentHome := filepath.Join(workspace, "codex-home")
+	environment := overriddenEnvironment(map[string]string{
+		"AGX_STATE_HOME": filepath.Join(workspace, "state"),
+		"CODEX_HOME":     agentHome,
+		"PATH":           binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+	})
+
+	runAGX(t, binary, catalogRoot, environment, "lock", "--catalog", catalogPath)
+	runAGX(t, binary, catalogRoot, environment, "audit", "review", "--catalog", catalogPath, "--json")
+	runAGX(t, binary, catalogRoot, environment, "approve", "review", "--catalog", catalogPath, "--json")
+	plan := runAGX(t, binary, catalogRoot, environment, "plan", "--catalog", catalogPath, "--json")
+	if !strings.Contains(plan, `"action":"add"`) {
+		t.Fatalf("overlay plan = %s", plan)
+	}
+	firstOutput := runAGX(t, binary, catalogRoot, environment, "apply", "--catalog", catalogPath, "--json")
+	var first applyResult
+	decodeJSON(t, firstOutput, &first)
+	if !first.Changed || first.Generation == "" {
+		t.Fatalf("first overlay apply = %#v", first)
+	}
+	assertHealthyStatus(t, runAGX(t, binary, catalogRoot, environment, "status", "--json"), first.Generation)
+	installedRoot := filepath.Join(agentHome, "skills", "review")
+	assertFileContent(t, filepath.Join(installedRoot, "SKILL.md"), "Policy one\n# Review\nFooter\n")
+	if _, err := os.Lstat(filepath.Join(installedRoot, "scripts", "upload.sh")); !os.IsNotExist(err) {
+		t.Fatalf("disabled script still exists: %v", err)
+	}
+
+	writeFile(t, prependPath, "Policy two\n")
+	runAGX(t, binary, catalogRoot, environment, "lock", "--catalog", catalogPath)
+	secondOutput := runAGX(t, binary, catalogRoot, environment, "apply", "--catalog", catalogPath, "--json")
+	var second applyResult
+	decodeJSON(t, secondOutput, &second)
+	if !second.Changed || second.Generation == first.Generation {
+		t.Fatalf("second overlay apply = %#v", second)
+	}
+	assertFileContent(t, filepath.Join(installedRoot, "SKILL.md"), "Policy two\n# Review\nFooter\n")
+
+	rollbackOutput := runAGX(t, binary, catalogRoot, environment, "rollback", "--json")
+	var rollback rollbackResult
+	decodeJSON(t, rollbackOutput, &rollback)
+	if rollback.From != second.Generation || rollback.Restored != first.Generation || rollback.Generation == "" {
+		t.Fatalf("overlay rollback = %#v", rollback)
+	}
+	assertFileContent(t, filepath.Join(installedRoot, "SKILL.md"), "Policy one\n# Review\nFooter\n")
+	if _, err := os.Lstat(filepath.Join(installedRoot, "scripts", "upload.sh")); !os.IsNotExist(err) {
+		t.Fatalf("disabled script returned after rollback: %v", err)
+	}
+	assertHealthyStatus(t, runAGX(t, binary, catalogRoot, environment, "status", "--json"), rollback.Generation)
+}
+
 func repositoryRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
@@ -181,6 +273,17 @@ func writeFile(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func assertFileContent(t *testing.T, path, want string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != want {
+		t.Fatalf("%s = %q, want %q", path, data, want)
 	}
 }
 

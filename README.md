@@ -21,11 +21,27 @@ Skills + Plugins + MCP Servers + Instructions
 
 AGX is currently in the early design and implementation stage. Its CLI, catalog schema, and installation workflow are not yet stable. This README describes the intended architecture; it does not imply that every feature is already available.
 
-The implemented Skill scope currently includes one local catalog, `local` and `git` sources, Codex, Claude Code, Pi, and OpenCode adapters, copy-based installation, and the `list`, `lock`, `plan`, `apply`, `status`, and `doctor` commands. Plugins, MCP servers, instructions, profiles, and multiple catalogs remain part of the target model but are not yet implemented.
+The implemented Skill scope currently includes one local catalog, `local` and `git` sources, Codex, Claude Code, Pi, and OpenCode adapters, copy-based installation, overlays, and the `list`, `lock`, `plan`, `apply`, `status`, and `doctor` commands. Plugins, MCP servers, instructions, profiles, and multiple catalogs remain part of the target model but are not yet implemented.
 
-The current prototype can load and lock a single Catalog, check and selectively accept source updates, compare locked and candidate Skill content, run static risk audits, store digest-bound local approvals, install local or approved Git-backed Skills with copy-based `agx apply`, inspect the active generation, and restore an earlier snapshot. Git Skills are unreviewed by default: `plan` and `apply` reject them until `agx approve` records approval for the exact commit, content digest, Adapter security version, and policy digest. Changing any bound value—including accepting an update—invalidates approval. Status and doctor detect unfinished transactions, while `agx repair` safely completes their compensation rollback when recorded content digests still match. Unknown existing targets remain conflicts unless `--adopt` is used with exactly matching content; externally modified managed targets are never silently overwritten. Generations created before rollback snapshots were introduced cannot be restored. GitHub Actions verifies native tests and builds on Linux, macOS, and Windows, with race detection and vetting on Linux.
+The current prototype can load and lock a single Catalog, check and selectively accept source updates, apply deterministic overlays, compare locked and candidate Skill content, run static risk audits, store digest-bound local approvals, install local or approved Git-backed Skills with copy-based `agx apply`, inspect the active generation, and restore an earlier snapshot. Overlays currently support deterministic `SKILL.md` prepend/append content and disabling named scripts; unsupported rename and target-private metadata are rejected explicitly. Git Skills are unreviewed by default: `plan` and `apply` reject them until `agx approve` records approval for the exact commit, content digest, overlay digest, Adapter security version, and policy digest. Changing any bound value—including accepting an update—invalidates approval. Status and doctor detect unfinished transactions, while `agx repair` safely completes their compensation rollback when recorded content digests still match. Unknown existing targets remain conflicts unless `--adopt` is used with exactly matching content; externally modified managed targets are never silently overwritten. Generations created before rollback snapshots were introduced cannot be restored. GitHub Actions verifies native tests and builds on Linux, macOS, and Windows, with race detection and vetting on Linux.
 
 Local Skill and overlay paths may be relative to the Catalog, absolute, or rooted at the current user's home with `~/`. For example, `skills/review`, `~/agent-skills/review`, and `/opt/agent-skills/review` are valid on Unix-like systems; Windows also accepts native absolute paths such as `C:\agent-skills\review`. AGX does not expand environment variables or other users' homes such as `~alice`. Git source `path` values remain relative to the repository root. Prefer `~/` over an absolute path when the same Catalog will be used on multiple machines, because the original path expression is preserved in `agx.lock`.
+
+The current overlay format is declared by adding `overlay: overlays/review` to a Skill and placing this manifest at `overlays/review/overlay.yaml`:
+
+```yaml
+apiVersion: agx.dev/v1alpha1
+kind: Overlay
+
+content:
+  prepend: prepend.md
+  append: append.md
+
+disableScripts:
+  - scripts/upload-result.sh
+```
+
+The referenced Markdown is applied to `SKILL.md`, and disabled scripts are removed from the rendered installation artifact. Before writing `agx.lock`, AGX validates the Overlay manifest, its referenced files, and that the Overlay can be applied to the resolved Skill. The original source digest and overlay digest remain separate in `agx.lock`; review and deployment operate on the rendered result.
 
 ## Why AGX
 
@@ -211,7 +227,7 @@ Agent support is provided through built-in adapters. AGX will not load external 
 AGX is planned as a Go application distributed as a single binary for macOS, Linux, and Windows. The intended milestones are:
 
 1. A local catalog, `local` and `git` sources, Codex, Claude, Pi, and OpenCode adapters, and safe copy-based installation.
-2. A content-addressed store, diffs and auditing, overlays, generations, and rollback.
+2. A content-addressed store, richer overlay patching, diffs and auditing, generations, and rollback.
 3. Plugins, MCP servers, instructions, profiles, multiple catalogs, and additional agent adapters.
 4. Archive sources, signature verification, a public catalog index specification, and package-manager distribution.
 

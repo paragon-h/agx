@@ -128,6 +128,20 @@ func TestRunnerLocksGitSkill(t *testing.T) {
 
 	catalogRoot := t.TempDir()
 	catalogPath := filepath.Join(catalogRoot, "agx.yaml")
+	overlayRoot := filepath.Join(catalogRoot, "overlays", "review")
+	if err := os.MkdirAll(overlayRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(overlayRoot, "overlay.yaml"), []byte(`apiVersion: agx.dev/v1alpha1
+kind: Overlay
+content:
+  prepend: prepend.md
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(overlayRoot, "prepend.md"), []byte("Policy one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	catalogYAML := fmt.Sprintf(`apiVersion: agx.dev/v1alpha1
 kind: Catalog
 metadata:
@@ -139,6 +153,7 @@ skills:
       repository: %q
       revision: main
       path: skills/review
+    overlay: overlays/review
     targets:
       codex: {}
 `, repository)
@@ -166,25 +181,6 @@ skills:
 		t.Fatalf("content digest = %q, want sha256 digest", got.ContentDigest)
 	}
 
-	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte("# Review updated\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	runGitCommand(t, repository, "add", ".")
-	runGitCommand(t, repository, "commit", "--quiet", "-m", "update skill")
-	updatedCommit := strings.TrimSpace(runGitCommand(t, repository, "rev-parse", "HEAD"))
-
-	stdout.Reset()
-	stderr.Reset()
-	if code := runner.Run(context.Background(), []string{"lock", "--catalog", catalogPath, "--frozen"}); code != ExitSuccess {
-		t.Fatalf("frozen Git lock code = %d, stderr = %q", code, stderr.String())
-	}
-	stillLocked, err := lockfile.Load(filepath.Join(catalogRoot, "agx.lock"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stillLocked.Skills["review"].Source.ResolvedCommit != wantCommit {
-		t.Fatal("frozen lock unexpectedly resolved the updated branch")
-	}
 	binDirectory := t.TempDir()
 	if err := os.WriteFile(filepath.Join(binDirectory, "codex"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -234,8 +230,58 @@ skills:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(installedManifest) != "# Review\n" {
+	if string(installedManifest) != "Policy one\n# Review\n" {
 		t.Fatalf("installed Git manifest = %q", installedManifest)
+	}
+
+	if err := os.WriteFile(filepath.Join(overlayRoot, "prepend.md"), []byte("Policy two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"lock", "--catalog", catalogPath}); code != ExitSuccess {
+		t.Fatalf("updated overlay lock code = %d, stderr = %q", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"plan", "--catalog", catalogPath}); code != ExitPolicyDenied {
+		t.Fatalf("overlay-changed unapproved plan code = %d, want %d; stderr = %q", code, ExitPolicyDenied, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"approve", "review", "--catalog", catalogPath}); code != ExitSuccess {
+		t.Fatalf("overlay-changed approve code = %d, stderr = %q", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"apply", "--catalog", catalogPath}); code != ExitSuccess {
+		t.Fatalf("overlay-changed apply code = %d, stderr = %q", code, stderr.String())
+	}
+	installedManifest, err = os.ReadFile(filepath.Join(gitAgentHome, "skills", "review", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(installedManifest) != "Policy two\n# Review\n" {
+		t.Fatalf("updated overlay Git manifest = %q", installedManifest)
+	}
+
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte("# Review updated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitCommand(t, repository, "add", ".")
+	runGitCommand(t, repository, "commit", "--quiet", "-m", "update skill")
+	updatedCommit := strings.TrimSpace(runGitCommand(t, repository, "rev-parse", "HEAD"))
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"lock", "--catalog", catalogPath, "--frozen"}); code != ExitSuccess {
+		t.Fatalf("frozen Git lock code = %d, stderr = %q", code, stderr.String())
+	}
+	stillLocked, err := lockfile.Load(filepath.Join(catalogRoot, "agx.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stillLocked.Skills["review"].Source.ResolvedCommit != wantCommit {
+		t.Fatal("frozen lock unexpectedly resolved the updated branch")
 	}
 
 	stdout.Reset()
@@ -294,7 +340,7 @@ skills:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(updatedManifest) != "# Review updated\n" {
+	if string(updatedManifest) != "Policy two\n# Review updated\n" {
 		t.Fatalf("updated Git manifest = %q", updatedManifest)
 	}
 }

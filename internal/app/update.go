@@ -13,6 +13,7 @@ import (
 	"github.com/paragon-h/agx/internal/catalog"
 	"github.com/paragon-h/agx/internal/contenthash"
 	"github.com/paragon-h/agx/internal/lockfile"
+	"github.com/paragon-h/agx/internal/overlay"
 )
 
 type updateReport struct {
@@ -95,9 +96,6 @@ func (r *Runner) update(ctx context.Context, args []string) int {
 			skill:         loaded.document.Catalog.Skills[name],
 			lockedSkill:   loaded.locked.Skills[name],
 		}
-		if input.skill.Overlay != "" {
-			return r.commandError(ExitFailure, "AGX_UPDATE_UNSUPPORTED", fmt.Errorf("skill %q uses an overlay; overlay updates are not implemented yet", name))
-		}
 		candidate, err := materializeReviewVersion(ctx, input, true)
 		if err != nil {
 			return r.commandError(ExitSourceFailure, "AGX_UPDATE_SOURCE_FAILED", fmt.Errorf("skill %s: %w", name, err))
@@ -108,9 +106,9 @@ func (r *Runner) update(ctx context.Context, args []string) int {
 			CurrentCommit:   input.lockedSkill.Source.ResolvedCommit,
 			CandidateCommit: candidate.Commit,
 			CurrentDigest:   input.lockedSkill.ContentDigest,
-			CandidateDigest: candidate.Digest,
+			CandidateDigest: candidate.SourceDigest,
 		}
-		entry.Changed = entry.CurrentCommit != entry.CandidateCommit || entry.CurrentDigest != entry.CandidateDigest
+		entry.Changed = entry.CurrentCommit != entry.CandidateCommit || entry.CurrentDigest != entry.CandidateDigest || input.lockedSkill.OverlayDigest != candidate.OverlayDigest
 		if entry.Changed {
 			report.Summary.Changed++
 		} else {
@@ -176,6 +174,23 @@ func loadUpdateContext(catalogPath, lockPath string) (updateContext, error) {
 		if source.Type == "git" && (source.Repository != lockedSkill.Source.Repository || source.Revision != lockedSkill.Source.RequestedRevision || source.Path != lockedSkill.Source.Path) {
 			return updateContext{}, fmt.Errorf("skill %q Git source differs from lockfile", name)
 		}
+		overlayDigest := ""
+		if skill := document.Catalog.Skills[name]; skill.Overlay != "" {
+			overlayPath, err := document.Resolve(skill.Overlay)
+			if err != nil {
+				return updateContext{}, fmt.Errorf("skill %q overlay: %w", name, err)
+			}
+			if err := overlay.Validate(overlayPath); err != nil {
+				return updateContext{}, fmt.Errorf("skill %q overlay: %w", name, err)
+			}
+			overlayDigest, err = contenthash.Directory(overlayPath)
+			if err != nil {
+				return updateContext{}, fmt.Errorf("skill %q overlay: %w", name, err)
+			}
+		}
+		if overlayDigest != lockedSkill.OverlayDigest {
+			return updateContext{}, fmt.Errorf("skill %q overlay differs from lockfile", name)
+		}
 	}
 	return updateContext{document: document, lockPath: lockPath, locked: locked}, nil
 }
@@ -193,7 +208,8 @@ func updateSkillName(catalogName, value string) (string, error) {
 
 func candidateLockedSkill(skill catalog.Skill, candidate reviewVersion, now time.Time) lockfile.LockedSkill {
 	locked := lockfile.LockedSkill{
-		ContentDigest: candidate.Digest,
+		ContentDigest: candidate.SourceDigest,
+		OverlayDigest: candidate.OverlayDigest,
 		LockedAt:      now.Format(time.RFC3339),
 	}
 	if skill.Source.Type == "local" {
