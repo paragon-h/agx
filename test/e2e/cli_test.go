@@ -42,13 +42,19 @@ func TestCLIEndToEndApplyStatusAndRollback(t *testing.T) {
 	}
 	copyExecutable(t, binary, filepath.Join(binDir, executableName("codex")))
 	catalogRoot := filepath.Join(workspace, "catalog")
+	catalogPath := filepath.Join(catalogRoot, "agx.yaml")
+	agentHome := filepath.Join(workspace, "codex-home")
+	stateHome := filepath.Join(workspace, "state")
+	environment := overriddenEnvironment(map[string]string{
+		"AGX_STATE_HOME": stateHome,
+		"CODEX_HOME":     agentHome,
+		"PATH":           binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+	})
+
+	runAGX(t, binary, workspace, environment, "init", "--catalog", catalogPath, "--name", "personal")
 	skillRoot := filepath.Join(catalogRoot, "skills", "review")
-	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	manifest := filepath.Join(skillRoot, "SKILL.md")
 	writeFile(t, manifest, "# Version one\n")
-	catalogPath := filepath.Join(catalogRoot, "agx.yaml")
 	writeFile(t, catalogPath, `apiVersion: agx.dev/v1alpha1
 kind: Catalog
 metadata:
@@ -61,14 +67,6 @@ skills:
     targets:
       codex: {}
 `)
-
-	agentHome := filepath.Join(workspace, "codex-home")
-	stateHome := filepath.Join(workspace, "state")
-	environment := overriddenEnvironment(map[string]string{
-		"AGX_STATE_HOME": stateHome,
-		"CODEX_HOME":     agentHome,
-		"PATH":           binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
-	})
 
 	runAGX(t, binary, catalogRoot, environment, "lock", "--catalog", catalogPath)
 	runAGX(t, binary, catalogRoot, environment, "audit", "review", "--catalog", catalogPath, "--json")

@@ -50,7 +50,7 @@ type planSummary struct {
 
 func (r *Runner) plan(ctx context.Context, args []string) int {
 	if helpRequested(args) {
-		fmt.Fprintln(r.stdout, "Usage: agx plan [--catalog PATH] [--lockfile PATH] [--adopt] [--json]")
+		fmt.Fprintln(r.stdout, "Usage: agx plan [--catalog PATH] [--lockfile PATH] [--adopt] [--allow-empty] [--json]")
 		return ExitSuccess
 	}
 	flags := flag.NewFlagSet("plan", flag.ContinueOnError)
@@ -58,6 +58,7 @@ func (r *Runner) plan(ctx context.Context, args []string) int {
 	catalogPath := flags.String("catalog", "agx.yaml", "catalog path")
 	lockPath := flags.String("lockfile", "", "lockfile path (defaults beside the catalog)")
 	adopt := flags.Bool("adopt", false, "allow adoption of unmanaged targets with identical content")
+	allowEmpty := flags.Bool("allow-empty", false, "allow an empty catalog to remove managed Skills")
 	jsonOutput := flags.Bool("json", false, "emit JSON")
 	if err := flags.Parse(args); err != nil {
 		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", err)
@@ -90,6 +91,9 @@ func (r *Runner) plan(ctx context.Context, args []string) int {
 	if current != nil {
 		managed = current.ManagedByPath()
 	}
+	if err := requireEmptyCatalogConfirmation(document, current, *allowEmpty); err != nil {
+		return r.commandError(ExitPolicyDenied, "AGX_EMPTY_CATALOG", err)
+	}
 	report, code, err := buildPlan(ctx, document, locked, *lockPath, *adopt, managed)
 	if err != nil {
 		return r.commandError(code, planErrorCode(code), err)
@@ -105,6 +109,13 @@ func (r *Runner) plan(ctx context.Context, args []string) int {
 		return ExitTargetConflict
 	}
 	return ExitSuccess
+}
+
+func requireEmptyCatalogConfirmation(document catalog.Document, current *state.Generation, allowEmpty bool) error {
+	if len(document.Catalog.Skills) != 0 || current == nil || len(current.Entries) == 0 || allowEmpty {
+		return nil
+	}
+	return fmt.Errorf("catalog %q contains no skills and would remove %d managed installation(s); rerun with --allow-empty to confirm", document.Catalog.Metadata.Name, len(current.Entries))
 }
 
 func buildPlan(ctx context.Context, document catalog.Document, locked lockfile.Lockfile, lockPath string, adopt bool, managed map[string]state.Entry) (planReport, int, error) {

@@ -23,6 +23,25 @@ func TestCatalogValidate(t *testing.T) {
 	}
 }
 
+func TestCatalogValidateAllowsEmptySkillsMap(t *testing.T) {
+	catalog := Catalog{
+		APIVersion: APIVersion,
+		Kind:       Kind,
+		Metadata:   Metadata{Name: "personal"},
+		Skills:     map[string]Skill{},
+	}
+	if err := catalog.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want empty catalog to be valid", err)
+	}
+}
+
+func TestCatalogValidateRejectsMissingSkillsMap(t *testing.T) {
+	catalog := Catalog{APIVersion: APIVersion, Kind: Kind, Metadata: Metadata{Name: "personal"}}
+	if err := catalog.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want missing skills error")
+	}
+}
+
 func TestCatalogAcceptsAllBuiltInTargets(t *testing.T) {
 	catalog := Catalog{
 		APIVersion: APIVersion,

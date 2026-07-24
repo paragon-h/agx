@@ -49,8 +49,8 @@ func (l Lockfile) Validate() error {
 	if !validDigest(l.CatalogDigest) {
 		return errors.New("catalogDigest must be a sha256 digest")
 	}
-	if len(l.Skills) == 0 {
-		return errors.New("skills must contain at least one entry")
+	if l.Skills == nil {
+		return errors.New("skills is required")
 	}
 	for name, skill := range l.Skills {
 		if !catalog.ValidName(name) {

@@ -53,6 +53,8 @@ func (r *Runner) Run(ctx context.Context, args []string) int {
 	case "version", "--version":
 		fmt.Fprintf(r.stdout, "agx %s\n", r.version)
 		return ExitSuccess
+	case "init":
+		return r.init(args[1:])
 	case "list":
 		return r.list(args[1:])
 	case "lock":
@@ -366,8 +368,9 @@ func (r *Runner) writeHelp(w io.Writer) {
 Usage:
   agx <command>
 
-Commands:
-  list      List skills in the active catalog
+	Commands:
+	  init      Create a new local catalog
+	  list      List skills in the active catalog
   lock      Resolve sources and write or verify the lockfile
   plan      Preview changes to agent global directories
   apply     Apply a previously reviewed plan

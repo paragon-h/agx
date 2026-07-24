@@ -64,8 +64,8 @@ func (c Catalog) Validate() error {
 	if !ValidName(c.Metadata.Name) {
 		return errors.New("metadata.name must be a lowercase resource name")
 	}
-	if len(c.Skills) == 0 {
-		return errors.New("skills must contain at least one entry")
+	if c.Skills == nil {
+		return errors.New("skills is required")
 	}
 	if c.Defaults.InstallStrategy != "" && c.Defaults.InstallStrategy != "auto" && c.Defaults.InstallStrategy != "copy" {
 		return errors.New("defaults.installStrategy must be auto or copy in Milestone 1")
