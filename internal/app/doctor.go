@@ -44,7 +44,7 @@ func (r *Runner) doctor(ctx context.Context, args []string) int {
 	}
 	flags := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	catalogPath := flags.String("catalog", "agx.yaml", "catalog path")
+	catalogPath := flags.String("catalog", "", "catalog path (defaults to ./agx.yaml or the active Catalog)")
 	jsonOutput := flags.Bool("json", false, "emit JSON")
 	if err := flags.Parse(args); err != nil {
 		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", err)
@@ -52,7 +52,11 @@ func (r *Runner) doctor(ctx context.Context, args []string) int {
 	if flags.NArg() != 0 {
 		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " ")))
 	}
-	document, err := catalog.Load(*catalogPath)
+	resolvedCatalogPath, err := resolveCatalogPath(*catalogPath)
+	if err != nil {
+		return r.commandError(ExitInvalidConfig, "AGX_CATALOG_NOT_FOUND", err)
+	}
+	document, err := catalog.Load(resolvedCatalogPath)
 	if err != nil {
 		return r.commandError(ExitInvalidConfig, "AGX_CATALOG_INVALID", err)
 	}

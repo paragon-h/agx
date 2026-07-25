@@ -33,6 +33,11 @@ type reviewVersion struct {
 }
 
 func loadReviewInput(catalogPath, lockPath, skillName string) (reviewInput, error) {
+	var err error
+	catalogPath, err = resolveCatalogPath(catalogPath)
+	if err != nil {
+		return reviewInput{}, err
+	}
 	document, err := catalog.Load(catalogPath)
 	if err != nil {
 		return reviewInput{}, err

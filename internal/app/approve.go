@@ -25,7 +25,7 @@ func (r *Runner) approve(ctx context.Context, args []string) int {
 	}
 	flags := flag.NewFlagSet("approve", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	catalogPath := flags.String("catalog", "agx.yaml", "catalog path")
+	catalogPath := flags.String("catalog", "", "catalog path (defaults to ./agx.yaml or the active Catalog)")
 	lockPath := flags.String("lockfile", "", "lockfile path (defaults beside the catalog)")
 	allowRisk := flags.Bool("allow-risk", false, "approve even when the static audit reports high-risk findings")
 	jsonOutput := flags.Bool("json", false, "emit JSON")

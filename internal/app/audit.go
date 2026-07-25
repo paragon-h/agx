@@ -26,7 +26,7 @@ func (r *Runner) audit(ctx context.Context, args []string) int {
 	}
 	flags := flag.NewFlagSet("audit", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	catalogPath := flags.String("catalog", "agx.yaml", "catalog path")
+	catalogPath := flags.String("catalog", "", "catalog path (defaults to ./agx.yaml or the active Catalog)")
 	lockPath := flags.String("lockfile", "", "lockfile path (defaults beside the catalog)")
 	candidate := flags.Bool("candidate", false, "audit the currently resolved catalog revision instead of the lockfile")
 	jsonOutput := flags.Bool("json", false, "emit JSON")

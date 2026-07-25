@@ -30,6 +30,46 @@ type rollbackResult struct {
 	Generation string `json:"generation"`
 }
 
+func TestCLIEndToEndActiveCatalogDiscovery(t *testing.T) {
+	repository := repositoryRoot(t)
+	workspace := t.TempDir()
+	binary := filepath.Join(workspace, executableName("agx"))
+	runBuild(t, repository, binary)
+
+	catalogRoot := filepath.Join(workspace, "catalog")
+	catalogPath := filepath.Join(catalogRoot, "agx.yaml")
+	writeFile(t, filepath.Join(catalogRoot, "skills", "review", "SKILL.md"), "# Review\n")
+	writeFile(t, catalogPath, `apiVersion: agx.dev/v1alpha1
+kind: Catalog
+metadata:
+  name: personal
+skills:
+  review:
+    source:
+      type: local
+      path: skills/review
+    targets:
+      codex: {}
+`)
+	environment := overriddenEnvironment(map[string]string{
+		"AGX_CONFIG_HOME": filepath.Join(workspace, "config"),
+	})
+
+	runAGX(t, binary, catalogRoot, environment, "catalog", "add", "personal", "--path", ".")
+	awayFromCatalog := filepath.Join(workspace, "empty")
+	if err := os.MkdirAll(awayFromCatalog, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	listed := runAGX(t, binary, awayFromCatalog, environment, "list")
+	if listed != "personal/review\tlocal\tcodex\n" {
+		t.Fatalf("active catalog list = %q", listed)
+	}
+	runAGX(t, binary, awayFromCatalog, environment, "lock")
+	if _, err := os.Stat(filepath.Join(catalogRoot, "agx.lock")); err != nil {
+		t.Fatalf("active catalog lockfile: %v", err)
+	}
+}
+
 func TestCLIEndToEndApplyStatusAndRollback(t *testing.T) {
 	repository := repositoryRoot(t)
 	workspace := t.TempDir()

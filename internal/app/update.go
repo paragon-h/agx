@@ -53,7 +53,7 @@ func (r *Runner) update(ctx context.Context, args []string) int {
 	}
 	flags := flag.NewFlagSet("update", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	catalogPath := flags.String("catalog", "agx.yaml", "catalog path")
+	catalogPath := flags.String("catalog", "", "catalog path (defaults to ./agx.yaml or the active Catalog)")
 	lockPath := flags.String("lockfile", "", "lockfile path (defaults beside the catalog)")
 	check := flags.Bool("check", false, "resolve candidates without changing the lockfile")
 	accept := flags.Bool("accept", false, "accept the selected candidate into the lockfile")
@@ -138,6 +138,11 @@ func (r *Runner) update(ctx context.Context, args []string) int {
 }
 
 func loadUpdateContext(catalogPath, lockPath string) (updateContext, error) {
+	var err error
+	catalogPath, err = resolveCatalogPath(catalogPath)
+	if err != nil {
+		return updateContext{}, err
+	}
 	document, err := catalog.Load(catalogPath)
 	if err != nil {
 		return updateContext{}, err

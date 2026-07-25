@@ -56,7 +56,7 @@ func (r *Runner) diff(ctx context.Context, args []string) int {
 	}
 	flags := flag.NewFlagSet("diff", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	catalogPath := flags.String("catalog", "agx.yaml", "catalog path")
+	catalogPath := flags.String("catalog", "", "catalog path (defaults to ./agx.yaml or the active Catalog)")
 	lockPath := flags.String("lockfile", "", "lockfile path (defaults beside the catalog)")
 	jsonOutput := flags.Bool("json", false, "emit JSON")
 	normalized, err := normalizeReviewArgs(args, map[string]bool{"json": true})

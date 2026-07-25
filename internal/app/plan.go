@@ -55,7 +55,7 @@ func (r *Runner) plan(ctx context.Context, args []string) int {
 	}
 	flags := flag.NewFlagSet("plan", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	catalogPath := flags.String("catalog", "agx.yaml", "catalog path")
+	catalogPath := flags.String("catalog", "", "catalog path (defaults to ./agx.yaml or the active Catalog)")
 	lockPath := flags.String("lockfile", "", "lockfile path (defaults beside the catalog)")
 	adopt := flags.Bool("adopt", false, "allow adoption of unmanaged targets with identical content")
 	allowEmpty := flags.Bool("allow-empty", false, "allow an empty catalog to remove managed Skills")
@@ -66,7 +66,11 @@ func (r *Runner) plan(ctx context.Context, args []string) int {
 	if flags.NArg() != 0 {
 		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " ")))
 	}
-	document, err := catalog.Load(*catalogPath)
+	resolvedCatalogPath, err := resolveCatalogPath(*catalogPath)
+	if err != nil {
+		return r.commandError(ExitInvalidConfig, "AGX_CATALOG_NOT_FOUND", err)
+	}
+	document, err := catalog.Load(resolvedCatalogPath)
 	if err != nil {
 		return r.commandError(ExitInvalidConfig, "AGX_CATALOG_INVALID", err)
 	}

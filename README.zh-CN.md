@@ -21,13 +21,25 @@ Skills + Plugins + MCP Servers + Instructions
 
 AGX 目前处于早期设计和实现阶段，CLI、Catalog Schema 和安装流程尚未对外稳定。本 README 描述的是目标架构，不代表所有功能已经可用。
 
-当前已经实现的 Skill 范围包括：单个本地 Catalog、`local`/`git` 来源、Codex、Claude Code、Pi、OpenCode Adapter、复制安装、Overlay，以及 `init`、`list`、`lock`、`plan`、`apply`、`status`、`doctor` 命令。Plugins、MCP Servers、Instructions、Profiles 和多 Catalog 仍属于目标模型，尚未实现。
+当前已经实现的 Skill 范围包括：本地 Catalog 注册表和单个 active Catalog、`local`/`git` 来源、Codex、Claude Code、Pi、OpenCode Adapter、复制安装、Overlay，以及 `init`、`catalog`、`list`、`lock`、`plan`、`apply`、`status`、`rollback`、`repair`、`diff`、`audit`、`approve`、`update`、`doctor` 命令。Plugins、MCP Servers、Instructions、Profiles、远程 Catalog 和多 Catalog 合并仍属于目标模型，尚未实现。
 
-当前原型已经可以初始化、加载并锁定单个 Catalog、检查并选择性接受来源更新、应用确定性的 Overlay、比较锁定内容和候选 Skill、执行静态风险审计、保存与摘要绑定的本机审批，并通过 copy 模式的 `agx apply` 安装本地或已审批的 Git 来源 Skills。当前 Overlay 支持对 `SKILL.md` 追加前置/后置内容，以及禁用指定脚本；尚未支持的 rename 和目标私有 metadata 会明确拒绝。Git Skill 默认处于未审查状态：只有 `agx approve` 为精确 commit、内容摘要、Overlay 摘要、Adapter 安全版本和策略摘要记录审批后，`plan` 和 `apply` 才会继续；任一绑定值变化（包括接受更新）都会使审批失效。Status 和 doctor 可以识别未完成的事务；当 journal 记录的内容摘要仍然匹配时，`agx repair` 会安全完成补偿回滚。未知现有目标仍默认视为冲突，只有内容完全一致时才能使用 `--adopt`；被外部修改的受管理目标不会被静默覆盖。引入回滚快照之前创建的 generation 无法恢复。GitHub Actions 会在 Linux、macOS 和 Windows 上执行原生测试与构建，并在 Linux 上运行 race 检查和 vet。
+当前原型已经可以初始化、注册、选择、加载并锁定本地 Catalog、检查并选择性接受来源更新、应用确定性的 Overlay、比较锁定内容和候选 Skill、执行静态风险审计、保存与摘要绑定的本机审批，并通过 copy 模式的 `agx apply` 安装本地或已审批的 Git 来源 Skills。当前 Overlay 支持对 `SKILL.md` 追加前置/后置内容，以及禁用指定脚本；尚未支持的 rename 和目标私有 metadata 会明确拒绝。Git Skill 默认处于未审查状态：只有 `agx approve` 为精确 commit、内容摘要、Overlay 摘要、Adapter 安全版本和策略摘要记录审批后，`plan` 和 `apply` 才会继续；任一绑定值变化（包括接受更新）都会使审批失效。Status 和 doctor 可以识别未完成的事务；当 journal 记录的内容摘要仍然匹配时，`agx repair` 会安全完成补偿回滚。未知现有目标仍默认视为冲突，只有内容完全一致时才能使用 `--adopt`；被外部修改的受管理目标不会被静默覆盖。引入回滚快照之前创建的 generation 无法恢复。GitHub Actions 会在 Linux、macOS 和 Windows 上执行原生测试与构建，并在 Linux 上运行 race 检查和 vet。
 
 本地 Skill 和 overlay 路径可以使用相对于 Catalog 的路径、绝对路径，或者以 `~/` 表示当前用户家目录。例如，在类 Unix 系统中可以使用 `skills/review`、`~/agent-skills/review` 和 `/opt/agent-skills/review`；Windows 也支持 `C:\agent-skills\review` 这样的原生绝对路径。AGX 不展开环境变量，也不支持 `~alice` 这样的其他用户家目录。Git 来源的 `path` 仍必须相对于仓库根目录。由于原始路径表达式会保存在 `agx.lock` 中，多台机器共用同一 Catalog 时，建议优先使用 `~/`，避免使用绑定单台机器的绝对路径。
 
 `agx init --name personal` 会创建一个非破坏性的空 `agx.yaml`，以及 `skills/`、`overlays/` 目录；如果 Catalog 已存在则拒绝覆盖。空 Catalog 可以正常执行 list 和 lock；当空 Catalog 会移除已管理的 Skills 时，`plan` 和 `apply` 必须显式传入 `--allow-empty`。
+
+本地 Catalog 可以注册后在任意目录选择使用：
+
+```bash
+agx catalog add personal --path ~/my-agx
+agx catalog add work --path ~/work/agx.yaml
+agx catalog list
+agx catalog use work
+agx catalog remove personal
+```
+
+第一条注册记录会自动成为 active Catalog。`remove` 只删除注册信息，不会删除 Catalog 文件。支持 `--catalog` 的命令按以下顺序解析 Catalog：显式 `--catalog`、当前目录的 `agx.yaml`、注册表中的 active Catalog。`agx init` 有意保持不同语义：未传 `--catalog` 时始终创建 `./agx.yaml`。注册表保存在操作系统用户配置目录下的 `agx/catalogs.yaml`；可以用绝对路径环境变量 `AGX_CONFIG_HOME` 覆盖该目录。注册表目前只接受本地文件或目录，只选择一个 active Catalog，不会获取远程 Catalog 仓库，也不会合并多个 Catalog。
 
 当前 Overlay 通过在 Skill 中增加 `overlay: overlays/review` 声明，并在 `overlays/review/overlay.yaml` 中使用以下格式：
 
@@ -178,8 +190,8 @@ profiles:
 # 初始化个人本地 Catalog
 agx init --name personal
 
-# 规划中的多 Catalog 注册
-# agx catalog add personal git@github.com:user/my-agx.git
+# 注册本地 Catalog，使其在当前目录之外也可用
+agx catalog add personal --path .
 
 # 锁定、审查、审批并部署
 agx lock
@@ -232,7 +244,7 @@ AGX 计划使用 Go 实现，以单一二进制提供 macOS、Linux 和 Windows 
 
 1. 本地 Catalog、`local`/`git` 来源、Codex、Claude、Pi、OpenCode Adapter 和安全复制安装。
 2. 内容寻址 Store、更丰富的 Overlay patch、差异与审计、Generation 和回滚。
-3. Plugins、MCP、Instructions、Profiles、多 Catalog 及更多 Agent Adapter。
+3. Plugins、MCP、Instructions、Profiles、多 Catalog 组合及更多 Agent Adapter。
 4. Archive 来源、签名验证、公共 Catalog 索引和包管理器分发。
 
 ## 开发
@@ -251,8 +263,10 @@ make checksums
 
 # 创建空的本地 Catalog，然后编辑 agx.yaml 声明 Skills
 go run ./cmd/agx init --name personal
+go run ./cmd/agx catalog add personal --path .
+go run ./cmd/agx catalog list
 
-# 当前目录中已有 agx.yaml 时
+# 当前目录中已有 agx.yaml，或者已经选择 active Catalog 时
 go run ./cmd/agx list
 go run ./cmd/agx lock           # 存在 Git 来源时进行解析
 go run ./cmd/agx lock --frozen  # 不执行 Git 或网络解析

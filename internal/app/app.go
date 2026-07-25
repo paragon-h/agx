@@ -55,6 +55,8 @@ func (r *Runner) Run(ctx context.Context, args []string) int {
 		return ExitSuccess
 	case "init":
 		return r.init(args[1:])
+	case "catalog":
+		return r.catalogRegistry(args[1:])
 	case "list":
 		return r.list(args[1:])
 	case "lock":
@@ -93,14 +95,18 @@ func (r *Runner) list(args []string) int {
 	}
 	flags := flag.NewFlagSet("list", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	catalogPath := flags.String("catalog", "agx.yaml", "catalog path")
+	catalogPath := flags.String("catalog", "", "catalog path (defaults to ./agx.yaml or the active Catalog)")
 	if err := flags.Parse(args); err != nil {
 		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", err)
 	}
 	if flags.NArg() != 0 {
 		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " ")))
 	}
-	document, err := catalog.Load(*catalogPath)
+	resolvedCatalogPath, err := resolveCatalogPath(*catalogPath)
+	if err != nil {
+		return r.commandError(ExitInvalidConfig, "AGX_CATALOG_NOT_FOUND", err)
+	}
+	document, err := catalog.Load(resolvedCatalogPath)
 	if err != nil {
 		return r.commandError(ExitInvalidConfig, "AGX_CATALOG_INVALID", err)
 	}
@@ -119,7 +125,7 @@ func (r *Runner) lock(ctx context.Context, args []string) int {
 	}
 	flags := flag.NewFlagSet("lock", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	catalogPath := flags.String("catalog", "agx.yaml", "catalog path")
+	catalogPath := flags.String("catalog", "", "catalog path (defaults to ./agx.yaml or the active Catalog)")
 	outputPath := flags.String("output", "", "lockfile path (defaults beside the catalog)")
 	frozen := flags.Bool("frozen", false, "verify without writing or resolving remote sources")
 	if err := flags.Parse(args); err != nil {
@@ -128,7 +134,11 @@ func (r *Runner) lock(ctx context.Context, args []string) int {
 	if flags.NArg() != 0 {
 		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " ")))
 	}
-	document, err := catalog.Load(*catalogPath)
+	resolvedCatalogPath, err := resolveCatalogPath(*catalogPath)
+	if err != nil {
+		return r.commandError(ExitInvalidConfig, "AGX_CATALOG_NOT_FOUND", err)
+	}
+	document, err := catalog.Load(resolvedCatalogPath)
 	if err != nil {
 		return r.commandError(ExitInvalidConfig, "AGX_CATALOG_INVALID", err)
 	}
@@ -368,9 +378,10 @@ func (r *Runner) writeHelp(w io.Writer) {
 Usage:
   agx <command>
 
-	Commands:
-	  init      Create a new local catalog
-	  list      List skills in the active catalog
+Commands:
+  init      Create a new local catalog
+  catalog   Register and select local catalogs
+  list      List skills in the active catalog
   lock      Resolve sources and write or verify the lockfile
   plan      Preview changes to agent global directories
   apply     Apply a previously reviewed plan
