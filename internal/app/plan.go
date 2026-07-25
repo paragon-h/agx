@@ -16,8 +16,8 @@ import (
 	"github.com/paragon-h/agx/internal/contenthash"
 	"github.com/paragon-h/agx/internal/lockfile"
 	"github.com/paragon-h/agx/internal/overlay"
-	gitresolver "github.com/paragon-h/agx/internal/resolver/git"
 	"github.com/paragon-h/agx/internal/state"
+	"github.com/paragon-h/agx/internal/store"
 )
 
 const ExitTargetConflict = 5
@@ -304,6 +304,14 @@ func verifyPlanSources(ctx context.Context, document catalog.Document, locked lo
 			if err != nil {
 				return ExitSourceFailure, fmt.Errorf("skill %q: %w", name, err)
 			}
+			if _, err := os.Lstat(sourcePath); os.IsNotExist(err) {
+				if err := ensureLockedSourceStored(ctx, document, lockedSkill); err != nil {
+					return ExitSourceFailure, fmt.Errorf("skill %q source is unavailable and its Store object cannot be used: %w", name, err)
+				}
+				break
+			} else if err != nil {
+				return ExitSourceFailure, fmt.Errorf("skill %q: %w", name, err)
+			}
 			digest, err := skillDigest(sourcePath)
 			if err != nil {
 				return ExitSourceFailure, fmt.Errorf("skill %q: %w", name, err)
@@ -311,20 +319,15 @@ func verifyPlanSources(ctx context.Context, document catalog.Document, locked lo
 			if digest != lockedSkill.ContentDigest {
 				return ExitLockOutdated, fmt.Errorf("local source for %q changed", name)
 			}
+			if err := store.Put(sourcePath, digest); err != nil {
+				return ExitSourceFailure, fmt.Errorf("skill %q Store object: %w", name, err)
+			}
 		case "git":
 			if lockedSkill.Source.Type != "git" || lockedSkill.Source.Repository != skill.Source.Repository || lockedSkill.Source.RequestedRevision != skill.Source.Revision || lockedSkill.Source.Path != skill.Source.Path {
 				return ExitLockOutdated, fmt.Errorf("Git source for %q differs from lockfile", name)
 			}
-			resolved, err := gitresolver.New().ResolveSkill(ctx, gitresolver.Request{
-				Repository: lockedSkill.Source.Repository,
-				Revision:   lockedSkill.Source.ResolvedCommit,
-				Path:       lockedSkill.Source.Path,
-			})
-			if err != nil {
-				return ExitSourceFailure, fmt.Errorf("skill %q: %w", name, err)
-			}
-			if resolved.ResolvedCommit != lockedSkill.Source.ResolvedCommit || resolved.ContentDigest != lockedSkill.ContentDigest {
-				return ExitLockOutdated, fmt.Errorf("locked Git content for %q failed verification", name)
+			if err := ensureLockedSourceStored(ctx, document, lockedSkill); err != nil {
+				return ExitSourceFailure, fmt.Errorf("skill %q Store object: %w", name, err)
 			}
 		default:
 			return ExitInvalidConfig, fmt.Errorf("unsupported source type %q", skill.Source.Type)
@@ -335,12 +338,29 @@ func verifyPlanSources(ctx context.Context, document catalog.Document, locked lo
 			if resolveErr != nil {
 				return ExitSourceFailure, fmt.Errorf("skill %q overlay: %w", name, resolveErr)
 			}
-			if err := overlay.Validate(overlayPath); err != nil {
+			if _, err := os.Lstat(overlayPath); os.IsNotExist(err) {
+				if lockedSkill.OverlayDigest == "" {
+					return ExitLockOutdated, fmt.Errorf("overlay for %q differs from lockfile", name)
+				}
+				if err := store.Verify(lockedSkill.OverlayDigest); err != nil {
+					return ExitSourceFailure, fmt.Errorf("skill %q Overlay is unavailable and its Store object cannot be used: %w", name, err)
+				}
+				overlayDigest = lockedSkill.OverlayDigest
+			} else if err != nil {
 				return ExitSourceFailure, fmt.Errorf("skill %q overlay: %w", name, err)
-			}
-			overlayDigest, err = contenthash.Directory(overlayPath)
-			if err != nil {
-				return ExitSourceFailure, fmt.Errorf("skill %q overlay: %w", name, err)
+			} else {
+				if err := overlay.Validate(overlayPath); err != nil {
+					return ExitSourceFailure, fmt.Errorf("skill %q overlay: %w", name, err)
+				}
+				overlayDigest, err = contenthash.Directory(overlayPath)
+				if err != nil {
+					return ExitSourceFailure, fmt.Errorf("skill %q overlay: %w", name, err)
+				}
+				if overlayDigest == lockedSkill.OverlayDigest {
+					if err := store.Put(overlayPath, overlayDigest); err != nil {
+						return ExitSourceFailure, fmt.Errorf("skill %q Overlay Store object: %w", name, err)
+					}
+				}
 			}
 		}
 		if overlayDigest != lockedSkill.OverlayDigest {

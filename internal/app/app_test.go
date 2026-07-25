@@ -111,6 +111,7 @@ func TestBuildLockPreservesTimestampForUnchangedSkill(t *testing.T) {
 }
 
 func TestRunnerLocksGitSkill(t *testing.T) {
+	t.Setenv("AGX_STORE_HOME", t.TempDir())
 	repository := t.TempDir()
 	runGitCommand(t, repository, "init", "--quiet", "--initial-branch=main")
 	runGitCommand(t, repository, "config", "user.name", "AGX Test")
@@ -470,6 +471,7 @@ func TestRunnerDoctorRejectsFileAtSkillsPath(t *testing.T) {
 
 func writeLocalCatalogFixture(t *testing.T) string {
 	t.Helper()
+	t.Setenv("AGX_STORE_HOME", t.TempDir())
 	root := t.TempDir()
 	skillRoot := filepath.Join(root, "skills", "code-review")
 	if err := os.MkdirAll(skillRoot, 0o755); err != nil {

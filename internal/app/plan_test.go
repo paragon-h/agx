@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/paragon-h/agx/internal/lockfile"
+	"github.com/paragon-h/agx/internal/store"
 )
 
 func TestRunnerPlanAddsWithoutWritingTargets(t *testing.T) {
@@ -107,6 +109,174 @@ func TestRunnerPlanRejectsSourceDrift(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "LOCK_OUTDATED") {
 		t.Fatalf("stderr = %q, want LOCK_OUTDATED", stderr.String())
+	}
+}
+
+func TestRunnerAppliesStoredLocalSkillAndOverlayWhenSourcesAreUnavailable(t *testing.T) {
+	root := writePlanCatalogFixture(t)
+	skillRoot := filepath.Join(root, "skills", "code-review")
+	overlayRoot := filepath.Join(root, "overlays", "code-review")
+	if err := os.MkdirAll(overlayRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(overlayRoot, "overlay.yaml"), []byte(`apiVersion: agx.dev/v1alpha1
+kind: Overlay
+content:
+  prepend: prepend.md
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(overlayRoot, "prepend.md"), []byte("Stored policy\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	catalogPath := filepath.Join(root, "agx.yaml")
+	if err := os.WriteFile(catalogPath, []byte(`apiVersion: agx.dev/v1alpha1
+kind: Catalog
+metadata:
+  name: personal
+skills:
+  code-review:
+    source:
+      type: local
+      path: skills/code-review
+    overlay: overlays/code-review
+    targets:
+      codex: {}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner, stdout, stderr, agentHome := planRunner(t)
+	if code := runner.Run(context.Background(), []string{"lock", "--catalog", catalogPath}); code != ExitSuccess {
+		t.Fatalf("lock code = %d, stderr = %q", code, stderr.String())
+	}
+	locked, err := lockfile.Load(filepath.Join(root, "agx.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockedSkill := locked.Skills["code-review"]
+	if err := store.Verify(lockedSkill.ContentDigest); err != nil {
+		t.Fatalf("source Store object: %v", err)
+	}
+	if err := store.Verify(lockedSkill.OverlayDigest); err != nil {
+		t.Fatalf("Overlay Store object: %v", err)
+	}
+	if err := os.RemoveAll(skillRoot); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(overlayRoot); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"plan", "--catalog", catalogPath}); code != ExitSuccess {
+		t.Fatalf("stored plan code = %d, stderr = %q", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"apply", "--catalog", catalogPath}); code != ExitSuccess {
+		t.Fatalf("stored apply code = %d, stderr = %q", code, stderr.String())
+	}
+	data, err := os.ReadFile(filepath.Join(agentHome, "skills", "code-review", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(data), "Stored policy\n# Code review\n"; got != want {
+		t.Fatalf("installed stored Skill = %q, want %q", got, want)
+	}
+}
+
+func TestRunnerRejectsCorruptStoredSkill(t *testing.T) {
+	root := writePlanCatalogFixture(t)
+	runner, _, stderr, _ := planRunner(t)
+	catalogPath := filepath.Join(root, "agx.yaml")
+	if code := runner.Run(context.Background(), []string{"lock", "--catalog", catalogPath}); code != ExitSuccess {
+		t.Fatalf("lock code = %d, stderr = %q", code, stderr.String())
+	}
+	locked, err := lockfile.Load(filepath.Join(root, "agx.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	objectPath, err := store.ObjectPath(locked.Skills["code-review"].ContentDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(objectPath, "SKILL.md"), []byte("corrupt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"plan", "--catalog", catalogPath}); code != ExitSourceFailure {
+		t.Fatalf("corrupt Store plan code = %d, want %d; stderr = %q", code, ExitSourceFailure, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Store object") || !strings.Contains(stderr.String(), "corrupt") {
+		t.Fatalf("corrupt Store stderr = %q", stderr.String())
+	}
+}
+
+func TestRunnerAppliesStoredGitSkillWithoutRepository(t *testing.T) {
+	t.Setenv("AGX_STORE_HOME", t.TempDir())
+	repository := t.TempDir()
+	runGitCommand(t, repository, "init", "--quiet", "--initial-branch=main")
+	runGitCommand(t, repository, "config", "user.name", "AGX Test")
+	runGitCommand(t, repository, "config", "user.email", "agx@example.invalid")
+	skillRoot := filepath.Join(repository, "skills", "review")
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte("# Offline review\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitCommand(t, repository, "add", ".")
+	runGitCommand(t, repository, "commit", "--quiet", "-m", "add offline skill")
+
+	catalogRoot := t.TempDir()
+	catalogPath := filepath.Join(catalogRoot, "agx.yaml")
+	catalogYAML := fmt.Sprintf(`apiVersion: agx.dev/v1alpha1
+kind: Catalog
+metadata:
+  name: personal
+skills:
+  review:
+    source:
+      type: git
+      repository: %q
+      revision: main
+      path: skills/review
+    targets:
+      codex: {}
+`, repository)
+	if err := os.WriteFile(catalogPath, []byte(catalogYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner, stdout, stderr, agentHome := planRunner(t)
+	if code := runner.Run(context.Background(), []string{"lock", "--catalog", catalogPath}); code != ExitSuccess {
+		t.Fatalf("lock code = %d, stderr = %q", code, stderr.String())
+	}
+	if err := os.RemoveAll(repository); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"approve", "review", "--catalog", catalogPath}); code != ExitSuccess {
+		t.Fatalf("stored approve code = %d, stderr = %q", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"plan", "--catalog", catalogPath}); code != ExitSuccess {
+		t.Fatalf("stored Git plan code = %d, stderr = %q", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"apply", "--catalog", catalogPath}); code != ExitSuccess {
+		t.Fatalf("stored Git apply code = %d, stderr = %q", code, stderr.String())
+	}
+	data, err := os.ReadFile(filepath.Join(agentHome, "skills", "review", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "# Offline review\n" {
+		t.Fatalf("installed stored Git Skill = %q", data)
 	}
 }
 
@@ -341,6 +511,7 @@ func TestValidateTargetRootsRejectsOverlap(t *testing.T) {
 
 func writePlanCatalogFixture(t *testing.T) string {
 	t.Helper()
+	t.Setenv("AGX_STORE_HOME", t.TempDir())
 	root := t.TempDir()
 	skillRoot := filepath.Join(root, "skills", "code-review")
 	if err := os.MkdirAll(skillRoot, 0o755); err != nil {

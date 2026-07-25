@@ -53,6 +53,7 @@ skills:
 `)
 	environment := overriddenEnvironment(map[string]string{
 		"AGX_CONFIG_HOME": filepath.Join(workspace, "config"),
+		"AGX_STORE_HOME":  filepath.Join(workspace, "store"),
 	})
 
 	runAGX(t, binary, catalogRoot, environment, "catalog", "add", "personal", "--path", ".")
@@ -68,6 +69,50 @@ skills:
 	if _, err := os.Stat(filepath.Join(catalogRoot, "agx.lock")); err != nil {
 		t.Fatalf("active catalog lockfile: %v", err)
 	}
+}
+
+func TestCLIEndToEndAppliesStoredContentWithoutSource(t *testing.T) {
+	repository := repositoryRoot(t)
+	workspace := t.TempDir()
+	binary := filepath.Join(workspace, executableName("agx"))
+	runBuild(t, repository, binary)
+
+	binDir := filepath.Join(workspace, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	copyExecutable(t, binary, filepath.Join(binDir, executableName("codex")))
+	catalogRoot := filepath.Join(workspace, "catalog")
+	skillRoot := filepath.Join(catalogRoot, "skills", "review")
+	writeFile(t, filepath.Join(skillRoot, "SKILL.md"), "# Stored review\n")
+	catalogPath := filepath.Join(catalogRoot, "agx.yaml")
+	writeFile(t, catalogPath, `apiVersion: agx.dev/v1alpha1
+kind: Catalog
+metadata:
+  name: personal
+skills:
+  review:
+    source:
+      type: local
+      path: skills/review
+    targets:
+      codex: {}
+`)
+	agentHome := filepath.Join(workspace, "codex-home")
+	environment := overriddenEnvironment(map[string]string{
+		"AGX_STATE_HOME": filepath.Join(workspace, "state"),
+		"AGX_STORE_HOME": filepath.Join(workspace, "store"),
+		"CODEX_HOME":     agentHome,
+		"PATH":           binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+	})
+
+	runAGX(t, binary, catalogRoot, environment, "lock")
+	if err := os.RemoveAll(skillRoot); err != nil {
+		t.Fatal(err)
+	}
+	runAGX(t, binary, catalogRoot, environment, "plan")
+	runAGX(t, binary, catalogRoot, environment, "apply")
+	assertFileContent(t, filepath.Join(agentHome, "skills", "review", "SKILL.md"), "# Stored review\n")
 }
 
 func TestCLIEndToEndApplyStatusAndRollback(t *testing.T) {

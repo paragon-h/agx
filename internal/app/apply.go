@@ -14,11 +14,8 @@ import (
 
 	"github.com/paragon-h/agx/internal/catalog"
 	"github.com/paragon-h/agx/internal/contenthash"
-	"github.com/paragon-h/agx/internal/filetree"
 	"github.com/paragon-h/agx/internal/installer"
 	"github.com/paragon-h/agx/internal/lockfile"
-	"github.com/paragon-h/agx/internal/overlay"
-	gitresolver "github.com/paragon-h/agx/internal/resolver/git"
 	"github.com/paragon-h/agx/internal/security"
 	"github.com/paragon-h/agx/internal/state"
 )
@@ -253,47 +250,11 @@ func stageDeployments(ctx context.Context, document catalog.Document, locked loc
 }
 
 func materializeSkill(ctx context.Context, document catalog.Document, skill catalog.Skill, locked lockfile.LockedSkill, destination string) error {
-	var sourceDigest string
-	switch skill.Source.Type {
-	case "local":
-		sourcePath, err := document.Resolve(skill.Source.Path)
-		if err != nil {
-			return err
-		}
-		if err := filetree.Copy(sourcePath, destination); err != nil {
-			return err
-		}
-		sourceDigest, err = contenthash.Directory(destination)
-		if err != nil {
-			return err
-		}
-	case "git":
-		result, err := gitresolver.New().MaterializeSkill(ctx, gitresolver.Request{
-			Repository: locked.Source.Repository,
-			Revision:   locked.Source.ResolvedCommit,
-			Path:       locked.Source.Path,
-		}, destination)
-		if err != nil {
-			return err
-		}
-		if result.ResolvedCommit != locked.Source.ResolvedCommit || result.ContentDigest != locked.ContentDigest {
-			return errors.New("materialized Git Skill does not match lockfile")
-		}
-		sourceDigest = result.ContentDigest
-	default:
-		return fmt.Errorf("unsupported source type %q", skill.Source.Type)
+	if err := materializeLockedSource(ctx, document, locked, destination); err != nil {
+		return err
 	}
-	if sourceDigest != locked.ContentDigest {
-		return errors.New("materialized Skill does not match lockfile content")
-	}
-	if skill.Overlay != "" {
-		overlayPath, err := document.Resolve(skill.Overlay)
-		if err != nil {
-			return err
-		}
-		if err := overlay.Apply(destination, overlayPath); err != nil {
-			return err
-		}
+	if err := applyLockedOverlay(document, skill, locked, destination); err != nil {
+		return err
 	}
 	return nil
 }

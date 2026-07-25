@@ -21,7 +21,7 @@ Skills + Plugins + MCP Servers + Instructions
 
 AGX 目前处于早期设计和实现阶段，CLI、Catalog Schema 和安装流程尚未对外稳定。本 README 描述的是目标架构，不代表所有功能已经可用。
 
-当前已经实现的 Skill 范围包括：本地 Catalog 注册表和单个 active Catalog、`local`/`git` 来源、Codex、Claude Code、Pi、OpenCode Adapter、复制安装、Overlay，以及 `init`、`catalog`、`list`、`lock`、`plan`、`apply`、`status`、`rollback`、`repair`、`diff`、`audit`、`approve`、`update`、`doctor` 命令。Plugins、MCP Servers、Instructions、Profiles、远程 Catalog 和多 Catalog 合并仍属于目标模型，尚未实现。
+当前已经实现的 Skill 范围包括：本地 Catalog 注册表和单个 active Catalog、内容寻址 Store、`local`/`git` 来源、Codex、Claude Code、Pi、OpenCode Adapter、复制安装、Overlay，以及 `init`、`catalog`、`list`、`lock`、`plan`、`apply`、`status`、`rollback`、`repair`、`diff`、`audit`、`approve`、`update`、`doctor` 命令。Plugins、MCP Servers、Instructions、Profiles、远程 Catalog 和多 Catalog 合并仍属于目标模型，尚未实现。
 
 当前原型已经可以初始化、注册、选择、加载并锁定本地 Catalog、检查并选择性接受来源更新、应用确定性的 Overlay、比较锁定内容和候选 Skill、执行静态风险审计、保存与摘要绑定的本机审批，并通过 copy 模式的 `agx apply` 安装本地或已审批的 Git 来源 Skills。当前 Overlay 支持对 `SKILL.md` 追加前置/后置内容，以及禁用指定脚本；尚未支持的 rename 和目标私有 metadata 会明确拒绝。Git Skill 默认处于未审查状态：只有 `agx approve` 为精确 commit、内容摘要、Overlay 摘要、Adapter 安全版本和策略摘要记录审批后，`plan` 和 `apply` 才会继续；任一绑定值变化（包括接受更新）都会使审批失效。Status 和 doctor 可以识别未完成的事务；当 journal 记录的内容摘要仍然匹配时，`agx repair` 会安全完成补偿回滚。未知现有目标仍默认视为冲突，只有内容完全一致时才能使用 `--adopt`；被外部修改的受管理目标不会被静默覆盖。引入回滚快照之前创建的 generation 无法恢复。GitHub Actions 会在 Linux、macOS 和 Windows 上执行原生测试与构建，并在 Linux 上运行 race 检查和 vet。
 
@@ -40,6 +40,8 @@ agx catalog remove personal
 ```
 
 第一条注册记录会自动成为 active Catalog。`remove` 只删除注册信息，不会删除 Catalog 文件。支持 `--catalog` 的命令按以下顺序解析 Catalog：显式 `--catalog`、当前目录的 `agx.yaml`、注册表中的 active Catalog。`agx init` 有意保持不同语义：未传 `--catalog` 时始终创建 `./agx.yaml`。注册表保存在操作系统用户配置目录下的 `agx/catalogs.yaml`；可以用绝对路径环境变量 `AGX_CONFIG_HOME` 覆盖该目录。注册表目前只接受本地文件或目录，只选择一个 active Catalog，不会获取远程 Catalog 仓库，也不会合并多个 Catalog。
+
+`agx lock` 会按 SHA-256 摘要保存精确的原始 Skill 和 Overlay 目录。锁定内容的审查、规划、审批和安装会校验并物化这些不可变对象，不再重复拉取 Git 仓库，也不依赖之后可能消失的本地来源目录。候选内容审查和更新检查仍解析实时来源。实时本地来源或 Overlay 一旦发生变化，仍视为 lock drift，需要重新执行 `agx lock`；来源仅仅缺失时，可以使用已验证的 Store 对象。损坏对象会被明确拒绝，不会静默修复。Store 默认位于 AGX 状态目录下的 `store/`，也可以通过绝对路径环境变量 `AGX_STORE_HOME` 调整位置。自动垃圾回收尚未实现。
 
 当前 Overlay 通过在 Skill 中增加 `overlay: overlays/review` 声明，并在 `overlays/review/overlay.yaml` 中使用以下格式：
 
@@ -102,7 +104,7 @@ Agent global directories and managed configuration fields
 
 - **Catalog** 描述用户期望的全局扩展状态。
 - **Lockfile** 将 Git branch 或 tag 解析为不可变 commit，并记录内容摘要。
-- **Store** 以内容哈希保存不可变源对象。
+- **Store** 以内容哈希保存经过校验的不可变 Skill 和 Overlay 目录。
 - **Adapter** 处理不同 Agent 的路径、能力、渲染与配置合并差异。
 - **Generation** 记录一次完整部署，用于状态检查和回滚。
 
@@ -243,7 +245,7 @@ Agent 的支持由内置 Adapter 提供。在接口和安全边界稳定前，AG
 AGX 计划使用 Go 实现，以单一二进制提供 macOS、Linux 和 Windows 支持。预期的主要阶段包括：
 
 1. 本地 Catalog、`local`/`git` 来源、Codex、Claude、Pi、OpenCode Adapter 和安全复制安装。
-2. 内容寻址 Store、更丰富的 Overlay patch、差异与审计、Generation 和回滚。
+2. Store 生命周期和垃圾回收、更丰富的 Overlay patch、差异与审计、Generation 和回滚。
 3. Plugins、MCP、Instructions、Profiles、多 Catalog 组合及更多 Agent Adapter。
 4. Archive 来源、签名验证、公共 Catalog 索引和包管理器分发。
 
