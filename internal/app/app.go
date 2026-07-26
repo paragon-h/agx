@@ -56,6 +56,8 @@ func (r *Runner) Run(ctx context.Context, args []string) int {
 		return r.init(args[1:])
 	case "catalog":
 		return r.catalogRegistry(args[1:])
+	case "store":
+		return r.storeCommand(args[1:])
 	case "list":
 		return r.list(args[1:])
 	case "lock":
@@ -157,6 +159,9 @@ func (r *Runner) lock(ctx context.Context, args []string) int {
 	}
 	if err := lockfile.Write(*outputPath, value); err != nil {
 		return r.commandError(ExitFailure, "AGX_LOCK_WRITE_FAILED", err)
+	}
+	if err := saveLockStoreReference(*outputPath, value); err != nil {
+		return r.commandError(ExitFailure, "AGX_STORE_REFERENCE_WRITE_FAILED", err)
 	}
 	fmt.Fprintf(r.stdout, "locked %d skill(s) -> %s\n", count, *outputPath)
 	return ExitSuccess
@@ -336,6 +341,7 @@ Usage:
 Commands:
   init      Create a new local catalog
   catalog   Register and select local catalogs
+  store     Inspect and clean the content-addressed Store
   list      List skills in the active catalog
   lock      Resolve sources and write or verify the lockfile
   plan      Preview changes to agent global directories

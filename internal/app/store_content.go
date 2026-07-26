@@ -62,6 +62,17 @@ func storeCurrentSkillSource(ctx context.Context, document catalog.Document, ski
 	}
 }
 
+func saveLockStoreReference(path string, value lockfile.Lockfile) error {
+	digests := make([]string, 0, len(value.Skills)*2)
+	for _, skill := range value.Skills {
+		digests = append(digests, skill.ContentDigest)
+		if skill.OverlayDigest != "" {
+			digests = append(digests, skill.OverlayDigest)
+		}
+	}
+	return store.SaveReference(path, digests)
+}
+
 func materializeLockedSource(ctx context.Context, document catalog.Document, locked lockfile.LockedSkill, destination string) error {
 	if err := store.Materialize(locked.ContentDigest, destination); err == nil {
 		return nil

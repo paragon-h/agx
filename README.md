@@ -21,7 +21,7 @@ Skills + Plugins + MCP Servers + Instructions
 
 AGX is currently in the early design and implementation stage. Its CLI, catalog schema, and installation workflow are not yet stable. This README describes the intended architecture; it does not imply that every feature is already available.
 
-The implemented Skill scope currently includes a local Catalog registry with one selected active Catalog, a content-addressed Store, `local` and `git` sources, Codex, Claude Code, Pi, and OpenCode adapters, copy-based installation, overlays, and the `init`, `catalog`, `list`, `lock`, `plan`, `apply`, `status`, `rollback`, `repair`, `diff`, `audit`, `approve`, `update`, and `doctor` commands. Plugins, MCP servers, instructions, profiles, remote Catalogs, and multi-Catalog merging remain part of the target model but are not yet implemented.
+The implemented Skill scope currently includes a local Catalog registry with one selected active Catalog, a content-addressed Store, `local` and `git` sources, Codex, Claude Code, Pi, and OpenCode adapters, copy-based installation, overlays, and the `init`, `catalog`, `store`, `list`, `lock`, `plan`, `apply`, `status`, `rollback`, `repair`, `diff`, `audit`, `approve`, `update`, and `doctor` commands. Plugins, MCP servers, instructions, profiles, remote Catalogs, and multi-Catalog merging remain part of the target model but are not yet implemented.
 
 The current prototype can initialize, register, select, load, and lock a local Catalog, check and selectively accept source updates, apply deterministic overlays, compare locked and candidate Skill content, run static risk audits, store digest-bound local approvals, install local or approved Git-backed Skills with copy-based `agx apply`, inspect the active generation, and restore an earlier snapshot. Overlays currently support deterministic `SKILL.md` prepend/append content and disabling named scripts; unsupported rename and target-private metadata are rejected explicitly. Git Skills are unreviewed by default: `plan` and `apply` reject them until `agx approve` records approval for the exact commit, content digest, overlay digest, Adapter security version, and policy digest. Changing any bound value—including accepting an update—invalidates approval. Status and doctor detect unfinished transactions, while `agx repair` safely completes their compensation rollback when recorded content digests still match. Unknown existing targets remain conflicts unless `--adopt` is used with exactly matching content; externally modified managed targets are never silently overwritten. Generations created before rollback snapshots were introduced cannot be restored. GitHub Actions verifies native tests and builds on Linux, macOS, and Windows, with race detection and vetting on Linux.
 
@@ -42,6 +42,18 @@ agx catalog remove personal
 The first registered Catalog becomes active automatically. `remove` only removes the registration and never deletes the Catalog file. Commands that accept `--catalog` resolve their Catalog in this order: an explicit `--catalog`, `agx.yaml` in the current directory, then the active registered Catalog. `agx init` is intentionally different and continues to create `./agx.yaml` unless `--catalog` is supplied. Registry state is stored in the operating system's user configuration directory under `agx/catalogs.yaml`; set the absolute `AGX_CONFIG_HOME` path to override that location. The registry currently accepts local files or directories only. It selects one active Catalog and does not fetch remote Catalog repositories or merge multiple Catalogs.
 
 `agx lock` stores the exact raw Skill and Overlay directories under their SHA-256 digests. Locked review, planning, approval, and installation verify and materialize those immutable objects instead of repeatedly fetching Git repositories or depending on a local source directory that may later disappear. Candidate review and update checks still resolve the live source. A changed live local source or Overlay remains lock drift and requires `agx lock`; a missing source can use its verified Store object. Corrupt objects are rejected rather than silently repaired. The Store defaults to `store/` under the AGX state directory and can be relocated with an absolute `AGX_STORE_HOME` path. Automatic garbage collection is not implemented yet.
+
+Store maintenance is explicit and reports before mutating data:
+
+```bash
+agx store status
+agx store verify
+agx store gc --dry-run
+agx store gc
+agx store gc --prune-stale --force
+```
+
+Every successful lockfile write and accepted update records the lockfile's content digests as a Store reference. GC removes only objects not referenced by those records. References whose lockfile is temporarily unavailable are retained by default; `--prune-stale` removes them explicitly. If no live lock references remain, `--force` is required before deleting objects. Automatic background garbage collection is not implemented.
 
 The current overlay format is declared by adding `overlay: overlays/review` to a Skill and placing this manifest at `overlays/review/overlay.yaml`:
 

@@ -13,6 +13,7 @@ import (
 )
 
 func TestRunnerInitCreatesEmptyCatalog(t *testing.T) {
+	t.Setenv("AGX_STORE_HOME", t.TempDir())
 	root := filepath.Join(t.TempDir(), "personal-catalog")
 	catalogPath := filepath.Join(root, "agx.yaml")
 	var stdout, stderr bytes.Buffer

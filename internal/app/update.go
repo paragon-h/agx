@@ -120,11 +120,16 @@ func (r *Runner) update(ctx context.Context, args []string) int {
 		}
 		candidate.Close()
 	}
-	if *accept && report.Summary.Changed > 0 {
-		name, _ := updateSkillName(loaded.document.Catalog.Metadata.Name, flags.Arg(0))
-		loaded.locked.Skills[name] = acceptedSkill
-		if err := lockfile.Write(loaded.lockPath, loaded.locked); err != nil {
-			return r.commandError(ExitFailure, "AGX_UPDATE_WRITE_FAILED", err)
+	if *accept {
+		if report.Summary.Changed > 0 {
+			name, _ := updateSkillName(loaded.document.Catalog.Metadata.Name, flags.Arg(0))
+			loaded.locked.Skills[name] = acceptedSkill
+			if err := lockfile.Write(loaded.lockPath, loaded.locked); err != nil {
+				return r.commandError(ExitFailure, "AGX_UPDATE_WRITE_FAILED", err)
+			}
+		}
+		if err := saveLockStoreReference(loaded.lockPath, loaded.locked); err != nil {
+			return r.commandError(ExitFailure, "AGX_STORE_REFERENCE_WRITE_FAILED", err)
 		}
 	}
 	if *jsonOutput {

@@ -30,6 +30,15 @@ type rollbackResult struct {
 	Generation string `json:"generation"`
 }
 
+type storeStatusResult struct {
+	References int `json:"references"`
+	Summary    struct {
+		Objects      int `json:"objects"`
+		Referenced   int `json:"referenced"`
+		Unreferenced int `json:"unreferenced"`
+	} `json:"summary"`
+}
+
 func TestCLIEndToEndActiveCatalogDiscovery(t *testing.T) {
 	repository := repositoryRoot(t)
 	workspace := t.TempDir()
@@ -113,6 +122,27 @@ skills:
 	runAGX(t, binary, catalogRoot, environment, "plan")
 	runAGX(t, binary, catalogRoot, environment, "apply")
 	assertFileContent(t, filepath.Join(agentHome, "skills", "review", "SKILL.md"), "# Stored review\n")
+	var initialStore storeStatusResult
+	decodeJSON(t, runAGX(t, binary, catalogRoot, environment, "store", "status", "--json"), &initialStore)
+	if initialStore.References != 1 || initialStore.Summary.Objects != 1 || initialStore.Summary.Referenced != 1 || initialStore.Summary.Unreferenced != 0 {
+		t.Fatalf("initial Store status = %#v", initialStore)
+	}
+	runAGX(t, binary, catalogRoot, environment, "store", "verify")
+
+	writeFile(t, filepath.Join(skillRoot, "SKILL.md"), "# Candidate review\n")
+	runAGX(t, binary, catalogRoot, environment, "update", "--check", "--json")
+	var candidateStore storeStatusResult
+	decodeJSON(t, runAGX(t, binary, catalogRoot, environment, "store", "status", "--json"), &candidateStore)
+	if candidateStore.Summary.Objects != 2 || candidateStore.Summary.Referenced != 1 || candidateStore.Summary.Unreferenced != 1 {
+		t.Fatalf("candidate Store status = %#v", candidateStore)
+	}
+	runAGX(t, binary, catalogRoot, environment, "store", "gc", "--dry-run")
+	runAGX(t, binary, catalogRoot, environment, "store", "gc")
+	var collectedStore storeStatusResult
+	decodeJSON(t, runAGX(t, binary, catalogRoot, environment, "store", "status", "--json"), &collectedStore)
+	if collectedStore.Summary.Objects != 1 || collectedStore.Summary.Referenced != 1 || collectedStore.Summary.Unreferenced != 0 {
+		t.Fatalf("collected Store status = %#v", collectedStore)
+	}
 }
 
 func TestCLIEndToEndApplyStatusAndRollback(t *testing.T) {
