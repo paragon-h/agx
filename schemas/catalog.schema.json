@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agx.dev/schemas/catalog.schema.json",
-  "title": "AGX Milestone 1 Catalog",
+  "title": "AGX Catalog",
   "type": "object",
   "additionalProperties": false,
   "required": ["apiVersion", "kind", "metadata", "skills"],
@@ -28,6 +28,11 @@
       "type": "object",
       "propertyNames": { "$ref": "#/$defs/name" },
       "additionalProperties": { "$ref": "#/$defs/skill" }
+    },
+    "profiles": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/profile" }
     }
   },
   "$defs": {
@@ -69,6 +74,34 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean" }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "skills": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "include": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/name" }
+            },
+            "exclude": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/name" }
+            }
+          }
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["codex", "claude", "pi", "opencode"] }
+        }
       }
     },
     "localSource": {

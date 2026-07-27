@@ -19,6 +19,7 @@ type statusReport struct {
 	PreviousGeneration string             `json:"previousGeneration,omitempty"`
 	CatalogDigest      string             `json:"catalogDigest,omitempty"`
 	LockfileDigest     string             `json:"lockfileDigest,omitempty"`
+	Profile            string             `json:"profile,omitempty"`
 	Transaction        *installer.Journal `json:"transaction,omitempty"`
 	Entries            []statusEntry      `json:"entries"`
 	Summary            statusSummary      `json:"summary"`
@@ -89,6 +90,7 @@ func buildStatusReport(current *state.Generation, journal *installer.Journal) st
 		report.PreviousGeneration = current.PreviousID
 		report.CatalogDigest = current.CatalogDigest
 		report.LockfileDigest = current.LockfileDigest
+		report.Profile = current.Profile
 		for _, entry := range current.Entries {
 			status := inspectStatusEntry(entry)
 			report.Entries = append(report.Entries, status)
@@ -162,6 +164,9 @@ func renderStatusText(w io.Writer, report statusReport) {
 		fmt.Fprintf(w, "created: %s\n", report.CreatedAt)
 		if report.PreviousGeneration != "" {
 			fmt.Fprintf(w, "previous: %s\n", report.PreviousGeneration)
+		}
+		if report.Profile != "" {
+			fmt.Fprintf(w, "profile: %s\n", report.Profile)
 		}
 	}
 	if report.Transaction != nil {

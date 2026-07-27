@@ -25,6 +25,7 @@ const ExitTargetConflict = 5
 type planReport struct {
 	Catalog  string       `json:"catalog"`
 	Lockfile string       `json:"lockfile"`
+	Profile  string       `json:"profile,omitempty"`
 	Changes  []planChange `json:"changes"`
 	Summary  planSummary  `json:"summary"`
 }
@@ -50,15 +51,16 @@ type planSummary struct {
 
 func (r *Runner) plan(ctx context.Context, args []string) int {
 	if helpRequested(args) {
-		fmt.Fprintln(r.stdout, "Usage: agx plan [--catalog PATH] [--lockfile PATH] [--adopt] [--allow-empty] [--json]")
+		fmt.Fprintln(r.stdout, "Usage: agx plan [--catalog PATH] [--lockfile PATH] [--profile NAME] [--adopt] [--allow-empty] [--json]")
 		return ExitSuccess
 	}
 	flags := flag.NewFlagSet("plan", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	catalogPath := flags.String("catalog", "", "catalog path (defaults to ./agx.yaml or the active Catalog)")
 	lockPath := flags.String("lockfile", "", "lockfile path (defaults beside the catalog)")
+	profileName := flags.String("profile", "", "select Skills and targets from a named profile")
 	adopt := flags.Bool("adopt", false, "allow adoption of unmanaged targets with identical content")
-	allowEmpty := flags.Bool("allow-empty", false, "allow an empty catalog to remove managed Skills")
+	allowEmpty := flags.Bool("allow-empty", false, "allow an empty desired selection to remove managed Skills")
 	jsonOutput := flags.Bool("json", false, "emit JSON")
 	if err := flags.Parse(args); err != nil {
 		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", err)
@@ -84,7 +86,11 @@ func (r *Runner) plan(ctx context.Context, args []string) int {
 	if code, err := verifyPlanSources(ctx, document, locked); err != nil {
 		return r.commandError(code, planErrorCode(code), err)
 	}
-	if err := requireApprovals(document, locked); err != nil {
+	selected, err := selectProfile(document, *profileName)
+	if err != nil {
+		return r.commandError(ExitInvalidConfig, "AGX_PROFILE_INVALID", err)
+	}
+	if err := requireApprovals(selected, locked); err != nil {
 		return r.commandError(ExitPolicyDenied, "AGX_APPROVAL_REQUIRED", err)
 	}
 	current, err := state.Current()
@@ -95,10 +101,10 @@ func (r *Runner) plan(ctx context.Context, args []string) int {
 	if current != nil {
 		managed = current.ManagedByPath()
 	}
-	if err := requireEmptyCatalogConfirmation(document, current, *allowEmpty); err != nil {
+	if err := requireEmptySelectionConfirmation(selected, *profileName, current, *allowEmpty); err != nil {
 		return r.commandError(ExitPolicyDenied, "AGX_EMPTY_CATALOG", err)
 	}
-	report, code, err := buildPlan(ctx, document, locked, *lockPath, *adopt, managed)
+	report, code, err := buildPlan(ctx, selected, locked, *lockPath, *profileName, *adopt, managed)
 	if err != nil {
 		return r.commandError(code, planErrorCode(code), err)
 	}
@@ -115,15 +121,27 @@ func (r *Runner) plan(ctx context.Context, args []string) int {
 	return ExitSuccess
 }
 
-func requireEmptyCatalogConfirmation(document catalog.Document, current *state.Generation, allowEmpty bool) error {
+func selectProfile(document catalog.Document, profileName string) (catalog.Document, error) {
+	selected, err := document.Catalog.SelectProfile(profileName)
+	if err != nil {
+		return catalog.Document{}, err
+	}
+	document.Catalog = selected
+	return document, nil
+}
+
+func requireEmptySelectionConfirmation(document catalog.Document, profileName string, current *state.Generation, allowEmpty bool) error {
 	if len(document.Catalog.Skills) != 0 || current == nil || len(current.Entries) == 0 || allowEmpty {
 		return nil
+	}
+	if profileName != "" {
+		return fmt.Errorf("profile %q selects no installable skills and would remove %d managed installation(s); rerun with --allow-empty to confirm", profileName, len(current.Entries))
 	}
 	return fmt.Errorf("catalog %q contains no skills and would remove %d managed installation(s); rerun with --allow-empty to confirm", document.Catalog.Metadata.Name, len(current.Entries))
 }
 
-func buildPlan(ctx context.Context, document catalog.Document, locked lockfile.Lockfile, lockPath string, adopt bool, managed map[string]state.Entry) (planReport, int, error) {
-	report := planReport{Catalog: document.Path, Lockfile: lockPath}
+func buildPlan(ctx context.Context, document catalog.Document, locked lockfile.Lockfile, lockPath, profileName string, adopt bool, managed map[string]state.Entry) (planReport, int, error) {
+	report := planReport{Catalog: document.Path, Lockfile: lockPath, Profile: profileName}
 	targetPaths := make(map[string]string)
 	for _, targetName := range catalogTargets(document.Catalog) {
 		adapter, ok := adapterFor(targetName)
@@ -455,6 +473,9 @@ func planErrorCode(exitCode int) string {
 func renderPlanText(w io.Writer, report planReport) {
 	fmt.Fprintf(w, "catalog: %s\n", report.Catalog)
 	fmt.Fprintf(w, "lockfile: %s\n", report.Lockfile)
+	if report.Profile != "" {
+		fmt.Fprintf(w, "profile: %s\n", report.Profile)
+	}
 	for _, change := range report.Changes {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s", strings.ToUpper(change.Action), change.Target, change.Skill, change.Path)
 		if change.Reason != "" {

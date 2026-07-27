@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/paragon-h/agx/internal/catalog"
 	"github.com/paragon-h/agx/internal/contenthash"
 	"github.com/paragon-h/agx/internal/filetree"
 )
@@ -21,6 +22,7 @@ type Generation struct {
 	CreatedAt      string  `json:"createdAt"`
 	CatalogDigest  string  `json:"catalogDigest"`
 	LockfileDigest string  `json:"lockfileDigest"`
+	Profile        string  `json:"profile,omitempty"`
 	PreviousID     string  `json:"previousId,omitempty"`
 	Entries        []Entry `json:"entries"`
 }
@@ -283,6 +285,9 @@ func (g Generation) Validate() error {
 	}
 	if !validDigest(g.CatalogDigest) || !validDigest(g.LockfileDigest) {
 		return errors.New("generation digests must be sha256 digests")
+	}
+	if g.Profile != "" && (!catalog.ValidName(g.Profile) || strings.Contains(g.Profile, "/")) {
+		return errors.New("generation profile is invalid")
 	}
 	seenPaths := make(map[string]struct{}, len(g.Entries))
 	seenArtifacts := make(map[string]struct{}, len(g.Entries))

@@ -38,15 +38,16 @@ type deployment struct {
 
 func (r *Runner) apply(ctx context.Context, args []string) int {
 	if helpRequested(args) {
-		fmt.Fprintln(r.stdout, "Usage: agx apply [--catalog PATH] [--lockfile PATH] [--adopt] [--allow-empty] [--json]")
+		fmt.Fprintln(r.stdout, "Usage: agx apply [--catalog PATH] [--lockfile PATH] [--profile NAME] [--adopt] [--allow-empty] [--json]")
 		return ExitSuccess
 	}
 	flags := flag.NewFlagSet("apply", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	catalogPath := flags.String("catalog", "", "catalog path (defaults to ./agx.yaml or the active Catalog)")
 	lockPath := flags.String("lockfile", "", "lockfile path (defaults beside the catalog)")
+	profileName := flags.String("profile", "", "select Skills and targets from a named profile")
 	adopt := flags.Bool("adopt", false, "adopt unmanaged targets with identical content")
-	allowEmpty := flags.Bool("allow-empty", false, "allow an empty catalog to remove managed Skills")
+	allowEmpty := flags.Bool("allow-empty", false, "allow an empty desired selection to remove managed Skills")
 	jsonOutput := flags.Bool("json", false, "emit JSON")
 	if err := flags.Parse(args); err != nil {
 		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", err)
@@ -89,7 +90,11 @@ func (r *Runner) apply(ctx context.Context, args []string) int {
 	if code, err := verifyPlanSources(ctx, document, locked); err != nil {
 		return r.commandError(code, planErrorCode(code), err)
 	}
-	if err := requireApprovals(document, locked); err != nil {
+	selected, err := selectProfile(document, *profileName)
+	if err != nil {
+		return r.commandError(ExitInvalidConfig, "AGX_PROFILE_INVALID", err)
+	}
+	if err := requireApprovals(selected, locked); err != nil {
 		return r.commandError(ExitPolicyDenied, "AGX_APPROVAL_REQUIRED", err)
 	}
 	current, err := state.Current()
@@ -100,10 +105,10 @@ func (r *Runner) apply(ctx context.Context, args []string) int {
 	if current != nil {
 		managed = current.ManagedByPath()
 	}
-	if err := requireEmptyCatalogConfirmation(document, current, *allowEmpty); err != nil {
+	if err := requireEmptySelectionConfirmation(selected, *profileName, current, *allowEmpty); err != nil {
 		return r.commandError(ExitPolicyDenied, "AGX_EMPTY_CATALOG", err)
 	}
-	report, code, err := buildPlan(ctx, document, locked, *lockPath, *adopt, managed)
+	report, code, err := buildPlan(ctx, selected, locked, *lockPath, *profileName, *adopt, managed)
 	if err != nil {
 		return r.commandError(code, planErrorCode(code), err)
 	}
@@ -123,7 +128,7 @@ func (r *Runner) apply(ctx context.Context, args []string) int {
 		return r.renderApplyResult(result, *jsonOutput)
 	}
 
-	deployments, err := stageDeployments(ctx, document, locked, report)
+	deployments, err := stageDeployments(ctx, selected, locked, report)
 	if err != nil {
 		cleanupDeployments(deployments)
 		return r.commandError(ExitFailure, "AGX_STAGE_FAILED", err)
@@ -161,7 +166,7 @@ func (r *Runner) apply(ctx context.Context, args []string) int {
 		return r.commandError(ExitFailure, "AGX_APPLY_FAILED", err)
 	}
 
-	generation, err := createGeneration(*lockPath, locked, report, current)
+	generation, err := createGeneration(*lockPath, locked, *profileName, report, current)
 	if err == nil {
 		err = state.SaveArtifacts(generation)
 	}
@@ -434,7 +439,7 @@ func rollbackDeploymentsWithProgress(deployments []deployment, restored func(str
 	return nil
 }
 
-func createGeneration(lockPath string, locked lockfile.Lockfile, report planReport, previous *state.Generation) (state.Generation, error) {
+func createGeneration(lockPath string, locked lockfile.Lockfile, profileName string, report planReport, previous *state.Generation) (state.Generation, error) {
 	now := time.Now().UTC()
 	lockDigest, err := contenthash.File(lockPath)
 	if err != nil {
@@ -445,6 +450,7 @@ func createGeneration(lockPath string, locked lockfile.Lockfile, report planRepo
 		CreatedAt:      now.Format(time.RFC3339Nano),
 		CatalogDigest:  locked.CatalogDigest,
 		LockfileDigest: lockDigest,
+		Profile:        profileName,
 	}
 	if previous != nil {
 		generation.PreviousID = previous.ID

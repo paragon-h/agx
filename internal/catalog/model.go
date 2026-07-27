@@ -21,11 +21,12 @@ var (
 )
 
 type Catalog struct {
-	APIVersion string           `json:"apiVersion" yaml:"apiVersion"`
-	Kind       string           `json:"kind" yaml:"kind"`
-	Metadata   Metadata         `json:"metadata" yaml:"metadata"`
-	Defaults   Defaults         `json:"defaults,omitempty" yaml:"defaults,omitempty"`
-	Skills     map[string]Skill `json:"skills" yaml:"skills"`
+	APIVersion string             `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string             `json:"kind" yaml:"kind"`
+	Metadata   Metadata           `json:"metadata" yaml:"metadata"`
+	Defaults   Defaults           `json:"defaults,omitempty" yaml:"defaults,omitempty"`
+	Skills     map[string]Skill   `json:"skills" yaml:"skills"`
+	Profiles   map[string]Profile `json:"profiles,omitempty" yaml:"profiles,omitempty"`
 }
 
 type Metadata struct {
@@ -52,6 +53,16 @@ type Source struct {
 
 type TargetConfig struct {
 	Enabled *bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+}
+
+type Profile struct {
+	Skills  ProfileSkills `json:"skills,omitempty" yaml:"skills,omitempty"`
+	Targets []string      `json:"targets,omitempty" yaml:"targets,omitempty"`
+}
+
+type ProfileSkills struct {
+	Include []string `json:"include,omitempty" yaml:"include,omitempty"`
+	Exclude []string `json:"exclude,omitempty" yaml:"exclude,omitempty"`
 }
 
 func (c Catalog) Validate() error {
@@ -84,7 +95,62 @@ func (c Catalog) Validate() error {
 			return fmt.Errorf("skill %q: %w", name, err)
 		}
 	}
+	for name, profile := range c.Profiles {
+		if !ValidName(name) || strings.Contains(name, "/") {
+			return fmt.Errorf("profile %q has an invalid short name", name)
+		}
+		if err := profile.Validate(c.Skills); err != nil {
+			return fmt.Errorf("profile %q: %w", name, err)
+		}
+	}
 	return nil
+}
+
+func (p Profile) Validate(skills map[string]Skill) error {
+	include, err := validateProfileSkillNames("include", p.Skills.Include, skills)
+	if err != nil {
+		return err
+	}
+	exclude, err := validateProfileSkillNames("exclude", p.Skills.Exclude, skills)
+	if err != nil {
+		return err
+	}
+	for name := range include {
+		if _, exists := exclude[name]; exists {
+			return fmt.Errorf("skill %q cannot appear in both include and exclude", name)
+		}
+	}
+	if p.Targets != nil && len(p.Targets) == 0 {
+		return errors.New("targets must contain at least one agent when specified")
+	}
+	seenTargets := make(map[string]struct{}, len(p.Targets))
+	for _, target := range p.Targets {
+		if !ValidTarget(target) {
+			return fmt.Errorf("unsupported target %q", target)
+		}
+		if _, exists := seenTargets[target]; exists {
+			return fmt.Errorf("target %q is duplicated", target)
+		}
+		seenTargets[target] = struct{}{}
+	}
+	return nil
+}
+
+func validateProfileSkillNames(field string, names []string, skills map[string]Skill) (map[string]struct{}, error) {
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if !ValidName(name) || strings.Contains(name, "/") {
+			return nil, fmt.Errorf("%s skill %q must be a short name", field, name)
+		}
+		if _, exists := skills[name]; !exists {
+			return nil, fmt.Errorf("%s skill %q is not declared in the catalog", field, name)
+		}
+		if _, exists := seen[name]; exists {
+			return nil, fmt.Errorf("%s skill %q is duplicated", field, name)
+		}
+		seen[name] = struct{}{}
+	}
+	return seen, nil
 }
 
 func (s Skill) Validate() error {
@@ -123,7 +189,7 @@ func (s Skill) Validate() error {
 	}
 	hasEnabledTarget := false
 	for target := range s.Targets {
-		if target != "codex" && target != "claude" && target != "pi" && target != "opencode" {
+		if !ValidTarget(target) {
 			return fmt.Errorf("Milestone 1 does not support target %q", target)
 		}
 		config := s.Targets[target]
@@ -135,6 +201,10 @@ func (s Skill) Validate() error {
 		return errors.New("targets must enable at least one agent")
 	}
 	return nil
+}
+
+func ValidTarget(target string) bool {
+	return target == "codex" || target == "claude" || target == "pi" || target == "opencode"
 }
 
 func ValidateGitRepository(repository string) error {

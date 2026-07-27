@@ -91,12 +91,13 @@ func (r *Runner) Run(ctx context.Context, args []string) int {
 
 func (r *Runner) list(args []string) int {
 	if helpRequested(args) {
-		fmt.Fprintln(r.stdout, "Usage: agx list [--catalog PATH]")
+		fmt.Fprintln(r.stdout, "Usage: agx list [--catalog PATH] [--profile NAME]")
 		return ExitSuccess
 	}
 	flags := flag.NewFlagSet("list", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	catalogPath := flags.String("catalog", "", "catalog path (defaults to ./agx.yaml or the active Catalog)")
+	profileName := flags.String("profile", "", "select Skills and targets from a named profile")
 	if err := flags.Parse(args); err != nil {
 		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", err)
 	}
@@ -111,6 +112,11 @@ func (r *Runner) list(args []string) int {
 	if err != nil {
 		return r.commandError(ExitInvalidConfig, "AGX_CATALOG_INVALID", err)
 	}
+	selected, err := document.Catalog.SelectProfile(*profileName)
+	if err != nil {
+		return r.commandError(ExitInvalidConfig, "AGX_PROFILE_INVALID", err)
+	}
+	document.Catalog = selected
 	for _, name := range sortedSkillNames(document.Catalog) {
 		skill := document.Catalog.Skills[name]
 		targets := enabledTargets(skill.Targets)
@@ -357,5 +363,5 @@ Commands:
   version   Print the AGX version
   help      Show this help
 
-Project status: Milestone 1 Skill management and the Codex, Claude, Pi, and OpenCode adapters are implemented; later milestone features remain under development.`)
+Project status: Skill management, Profiles, and the Codex, Claude, Pi, and OpenCode adapters are implemented; later milestone features remain under development.`)
 }

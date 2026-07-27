@@ -19,9 +19,84 @@ type applyResult struct {
 type statusReport struct {
 	State      string `json:"state"`
 	Generation string `json:"generation"`
+	Profile    string `json:"profile"`
 	Summary    struct {
 		Healthy int `json:"healthy"`
 	} `json:"summary"`
+}
+
+func TestCLIEndToEndProfiles(t *testing.T) {
+	repository := repositoryRoot(t)
+	workspace := t.TempDir()
+	binary := filepath.Join(workspace, executableName("agx"))
+	runBuild(t, repository, binary)
+
+	binDir := filepath.Join(workspace, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	copyExecutable(t, binary, filepath.Join(binDir, executableName("codex")))
+	catalogRoot := filepath.Join(workspace, "catalog")
+	writeFile(t, filepath.Join(catalogRoot, "skills", "first", "SKILL.md"), "# First\n")
+	writeFile(t, filepath.Join(catalogRoot, "skills", "second", "SKILL.md"), "# Second\n")
+	writeFile(t, filepath.Join(catalogRoot, "agx.yaml"), `apiVersion: agx.dev/v1alpha1
+kind: Catalog
+metadata:
+  name: personal
+skills:
+  first:
+    source:
+      type: local
+      path: skills/first
+    targets:
+      codex: {}
+  second:
+    source:
+      type: local
+      path: skills/second
+    targets:
+      codex: {}
+profiles:
+  first-only:
+    skills:
+      include:
+        - first
+    targets:
+      - codex
+`)
+	agentHome := filepath.Join(workspace, "codex-home")
+	environment := overriddenEnvironment(map[string]string{
+		"AGX_STATE_HOME": filepath.Join(workspace, "state"),
+		"AGX_STORE_HOME": filepath.Join(workspace, "store"),
+		"CODEX_HOME":     agentHome,
+		"PATH":           binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+	})
+
+	runAGX(t, binary, catalogRoot, environment, "lock")
+	listed := runAGX(t, binary, catalogRoot, environment, "list", "--profile", "first-only")
+	if listed != "personal/first\tlocal\tcodex\n" {
+		t.Fatalf("profile list = %q", listed)
+	}
+	plan := runAGX(t, binary, catalogRoot, environment, "plan", "--profile", "first-only")
+	if !strings.Contains(plan, "profile: first-only") || !strings.Contains(plan, "personal/first") || strings.Contains(plan, "personal/second") {
+		t.Fatalf("profile plan = %q", plan)
+	}
+	var applied applyResult
+	decodeJSON(t, runAGX(t, binary, catalogRoot, environment, "apply", "--profile", "first-only", "--json"), &applied)
+	if !applied.Changed {
+		t.Fatalf("profile apply = %#v", applied)
+	}
+	if _, err := os.Stat(filepath.Join(agentHome, "skills", "first", "SKILL.md")); err != nil {
+		t.Fatalf("selected Skill: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(agentHome, "skills", "second")); !os.IsNotExist(err) {
+		t.Fatalf("unselected Skill exists: %v", err)
+	}
+	var status statusReport
+	decodeJSON(t, runAGX(t, binary, catalogRoot, environment, "status", "--json"), &status)
+	if status.State != "healthy" || status.Profile != "first-only" {
+		t.Fatalf("profile status = %#v", status)
+	}
 }
 
 type rollbackResult struct {
