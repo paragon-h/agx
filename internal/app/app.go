@@ -14,6 +14,7 @@ import (
 
 	"github.com/paragon-h/agx/internal/catalog"
 	"github.com/paragon-h/agx/internal/contenthash"
+	managedinstructions "github.com/paragon-h/agx/internal/instructions"
 	"github.com/paragon-h/agx/internal/lockfile"
 	"github.com/paragon-h/agx/internal/overlay"
 	"github.com/paragon-h/agx/internal/store"
@@ -120,6 +121,9 @@ func (r *Runner) list(args []string) int {
 		targets := enabledTargets(resource.Skill.Targets)
 		fmt.Fprintf(r.stdout, "%s\t%s\t%s\n", resource.QualifiedName, resource.Skill.Source.Type, strings.Join(targets, ","))
 	}
+	for _, resource := range selection.Instructions {
+		_, _ = fmt.Fprintf(r.stdout, "instructions:%s\tinstructions\t%s\n", resource.QualifiedName, strings.Join(enabledTargets(resource.Instruction.Targets), ","))
+	}
 	return ExitSuccess
 }
 
@@ -167,7 +171,7 @@ func (r *Runner) lock(ctx context.Context, args []string) int {
 	if err := saveLockStoreReference(*outputPath, value); err != nil {
 		return r.commandError(ExitFailure, "AGX_STORE_REFERENCE_WRITE_FAILED", err)
 	}
-	fmt.Fprintf(r.stdout, "locked %d skill(s) -> %s\n", count, *outputPath)
+	_, _ = fmt.Fprintf(r.stdout, "locked %d resource(s) -> %s\n", count, *outputPath)
 	return ExitSuccess
 }
 
@@ -185,6 +189,9 @@ func (r *Runner) verifyFrozen(document catalog.Document, path string) int {
 	}
 	if len(value.Skills) != len(document.Catalog.Skills) {
 		return r.commandError(ExitLockOutdated, "LOCK_OUTDATED", errors.New("catalog and lockfile contain different skill sets"))
+	}
+	if len(value.Instructions) != len(document.Catalog.Instructions) {
+		return r.commandError(ExitLockOutdated, "LOCK_OUTDATED", errors.New("catalog and lockfile contain different Instructions sets"))
 	}
 	for name, skill := range document.Catalog.Skills {
 		locked, ok := value.Skills[name]
@@ -237,6 +244,19 @@ func (r *Runner) verifyFrozen(document catalog.Document, path string) int {
 			}
 		}
 	}
+	for name, declaration := range document.Catalog.Instructions {
+		locked, ok := value.Instructions[name]
+		if !ok {
+			return r.commandError(ExitLockOutdated, "LOCK_OUTDATED", fmt.Errorf("instructions %q is missing from lockfile", name))
+		}
+		current, err := lockInstruction(document, declaration, time.Time{})
+		if err != nil {
+			return r.commandError(ExitFailure, "AGX_SOURCE_READ_FAILED", fmt.Errorf("instructions %q: %w", name, err))
+		}
+		if !sameLockedInstructionContent(current, locked) {
+			return r.commandError(ExitLockOutdated, "LOCK_OUTDATED", fmt.Errorf("instructions %q changed", name))
+		}
+	}
 	fmt.Fprintf(r.stdout, "lockfile verified (frozen): %s\n", path)
 	return ExitSuccess
 }
@@ -251,6 +271,7 @@ func buildLock(ctx context.Context, document catalog.Document, lockedAt time.Tim
 		Kind:          lockfile.Kind,
 		CatalogDigest: catalogDigest,
 		Skills:        make(map[string]lockfile.LockedSkill, len(document.Catalog.Skills)),
+		Instructions:  make(map[string]lockfile.LockedInstruction, len(document.Catalog.Instructions)),
 	}
 	for name, skill := range document.Catalog.Skills {
 		locked := lockfile.LockedSkill{
@@ -287,7 +308,74 @@ func buildLock(ctx context.Context, document catalog.Document, lockedAt time.Tim
 		}
 		value.Skills[name] = locked
 	}
-	return value, len(value.Skills), nil
+	for name, declaration := range document.Catalog.Instructions {
+		locked, lockErr := lockInstruction(document, declaration, lockedAt)
+		if lockErr != nil {
+			return lockfile.Lockfile{}, 0, fmt.Errorf("instructions %q: %w", name, lockErr)
+		}
+		if previous != nil {
+			if old, ok := previous.Instructions[name]; ok && sameLockedInstructionContent(locked, old) {
+				locked.LockedAt = old.LockedAt
+			}
+		}
+		value.Instructions[name] = locked
+	}
+	return value, len(value.Skills) + len(value.Instructions), nil
+}
+
+func lockInstruction(document catalog.Document, declaration catalog.Instruction, lockedAt time.Time) (lockfile.LockedInstruction, error) {
+	locked := lockfile.LockedInstruction{LockedAt: lockedAt.Format(time.RFC3339)}
+	fragments := make([][]byte, 0, len(declaration.Sources))
+	for _, source := range declaration.Sources {
+		path, err := document.Resolve(source)
+		if err != nil {
+			return lockfile.LockedInstruction{}, err
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			return lockfile.LockedInstruction{}, err
+		}
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return lockfile.LockedInstruction{}, fmt.Errorf("source %q is not a regular file", source)
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return lockfile.LockedInstruction{}, err
+		}
+		fragments = append(fragments, content)
+		locked.Sources = append(locked.Sources, lockfile.LockedInstructionSource{Path: source, ContentDigest: contenthash.Bytes(content)})
+	}
+	content, err := managedinstructions.Compose(fragments)
+	if err != nil {
+		return lockfile.LockedInstruction{}, err
+	}
+	locked.Content = string(content)
+	locked.ContentDigest = contenthash.Bytes(content)
+	return locked, nil
+}
+
+func sameLockedInstructionContent(left, right lockfile.LockedInstruction) bool {
+	if left.Content != right.Content || left.ContentDigest != right.ContentDigest || len(left.Sources) != len(right.Sources) {
+		return false
+	}
+	for index := range left.Sources {
+		if left.Sources[index] != right.Sources[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func instructionDeclarationMatchesLock(declaration catalog.Instruction, locked lockfile.LockedInstruction) bool {
+	if len(declaration.Sources) != len(locked.Sources) {
+		return false
+	}
+	for index, source := range declaration.Sources {
+		if locked.Sources[index].Path != source {
+			return false
+		}
+	}
+	return true
 }
 
 func validateOverlayApplication(ctx context.Context, document catalog.Document, skill catalog.Skill, locked lockfile.LockedSkill, overlayPath string) error {
@@ -361,5 +449,5 @@ Commands:
   version   Print the AGX version
   help      Show this help
 
-Project status: Skill management, Profiles, local multi-Catalog composition, and the Codex, Claude, Pi, and OpenCode adapters are implemented; later milestone features remain under development.`)
+Project status: Skill management, Codex global Instructions, Profiles, local multi-Catalog composition, and the Codex, Claude, Pi, and OpenCode adapters are implemented; later milestone features remain under development.`)
 }

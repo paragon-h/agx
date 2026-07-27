@@ -18,9 +18,19 @@ type Resource struct {
 	Skill         Skill
 }
 
+type InstructionResource struct {
+	CatalogName   string
+	Name          string
+	QualifiedName string
+	Document      Document
+	Instruction   Instruction
+}
+
 type Selection struct {
-	Profile   string
-	Resources []Resource
+	Profile      string
+	Targets      []string
+	Resources    []Resource
+	Instructions []InstructionResource
 }
 
 func NewCollection(documents []Document) (Collection, error) {
@@ -62,7 +72,7 @@ func (c Collection) Resources() []Resource {
 func (c Collection) SelectProfile(reference string) (Selection, error) {
 	resources := c.Resources()
 	if reference == "" {
-		return Selection{Resources: resources}, nil
+		return Selection{Resources: resources, Instructions: c.InstructionResources()}, nil
 	}
 	owner, profileName, err := c.resolveProfile(reference)
 	if err != nil {
@@ -106,7 +116,7 @@ func (c Collection) SelectProfile(reference string) (Selection, error) {
 	for _, target := range profile.Targets {
 		targets[target] = struct{}{}
 	}
-	selected := Selection{Profile: QualifiedName(owner, profileName)}
+	selected := Selection{Profile: QualifiedName(owner, profileName), Targets: append([]string(nil), profile.Targets...)}
 	for _, resource := range resources {
 		if _, exists := included[resource.QualifiedName]; !exists {
 			continue
@@ -124,7 +134,43 @@ func (c Collection) SelectProfile(reference string) (Selection, error) {
 			selected.Resources = append(selected.Resources, resource)
 		}
 	}
+	for _, resource := range c.InstructionResources() {
+		if len(targets) != 0 {
+			filtered := make(map[string]TargetConfig, len(resource.Instruction.Targets))
+			for target, config := range resource.Instruction.Targets {
+				if _, exists := targets[target]; exists {
+					filtered[target] = config
+				}
+			}
+			resource.Instruction.Targets = filtered
+		}
+		if hasEnabledTarget(resource.Instruction.Targets) {
+			selected.Instructions = append(selected.Instructions, resource)
+		}
+	}
 	return selected, nil
+}
+
+func (c Collection) InstructionResources() []InstructionResource {
+	resources := make([]InstructionResource, 0)
+	for _, catalogName := range c.Names {
+		document := c.Documents[catalogName]
+		names := make([]string, 0, len(document.Catalog.Instructions))
+		for name := range document.Catalog.Instructions {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			resources = append(resources, InstructionResource{
+				CatalogName:   catalogName,
+				Name:          name,
+				QualifiedName: QualifiedName(catalogName, name),
+				Document:      document,
+				Instruction:   document.Catalog.Instructions[name],
+			})
+		}
+	}
+	return resources
 }
 
 func (c Collection) resolveProfile(reference string) (string, string, error) {

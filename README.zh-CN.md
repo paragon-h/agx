@@ -21,13 +21,13 @@ Skills + Plugins + MCP Servers + Instructions
 
 AGX 目前处于早期设计和实现阶段，CLI、Catalog Schema 和安装流程尚未对外稳定。本 README 描述的是目标架构，不代表所有功能已经可用。
 
-当前已经实现的 Skill 范围包括：本地 Catalog 注册表、Profiles、显式本地多 Catalog 组合、内容寻址 Store、`local`/`git` 来源、Codex、Claude Code、Pi、OpenCode Adapter、复制安装、Overlay，以及 `init`、`catalog`、`store`、`list`、`lock`、`plan`、`apply`、`status`、`rollback`、`repair`、`diff`、`audit`、`approve`、`update`、`doctor` 命令。Plugins、MCP Servers、Instructions、远程 Catalog 获取和 Catalog Git 同步仍属于目标模型，尚未实现。
+当前已经实现的范围包括：Skills、Codex 全局 Instructions、本地 Catalog 注册表、Profiles、显式本地多 Catalog 组合、内容寻址 Store、Skill 的 `local`/`git` 来源、Codex、Claude Code、Pi、OpenCode Adapter、复制安装、Overlay，以及 `init`、`catalog`、`store`、`list`、`lock`、`plan`、`apply`、`status`、`rollback`、`repair`、`diff`、`audit`、`approve`、`update`、`doctor` 命令。Plugins、MCP Servers、Codex 之外的 Instructions 目标、远程 Catalog 获取和 Catalog Git 同步仍属于目标模型，尚未实现。
 
-当前原型已经可以初始化、注册、选择、加载并锁定本地 Catalog、检查并选择性接受来源更新、应用确定性的 Overlay、比较锁定内容和候选 Skill、执行静态风险审计、保存与摘要绑定的本机审批，并通过 copy 模式的 `agx apply` 安装本地或已审批的 Git 来源 Skills。当前 Overlay 支持对 `SKILL.md` 追加前置/后置内容，以及禁用指定脚本；尚未支持的 rename 和目标私有 metadata 会明确拒绝。Git Skill 默认处于未审查状态：只有 `agx approve` 为精确 commit、内容摘要、Overlay 摘要、Adapter 安全版本和策略摘要记录审批后，`plan` 和 `apply` 才会继续；任一绑定值变化（包括接受更新）都会使审批失效。Status 和 doctor 可以识别未完成的事务；当 journal 记录的内容摘要仍然匹配时，`agx repair` 会安全完成补偿回滚。未知现有目标仍默认视为冲突，只有内容完全一致时才能使用 `--adopt`；被外部修改的受管理目标不会被静默覆盖。引入回滚快照之前创建的 generation 无法恢复。GitHub Actions 会在 Linux、macOS 和 Windows 上执行原生测试与构建，并在 Linux 上运行 race 检查和 vet。
+当前原型已经可以初始化、注册、选择、加载并锁定本地 Catalog、检查并选择性接受来源更新、应用确定性的 Overlay、比较锁定内容和候选 Skill、执行静态风险审计、保存与摘要绑定的本机审批，通过 copy 模式的 `agx apply` 安装本地或已审批的 Git 来源 Skills，并管理 Codex 全局 `AGENTS.md` 中带标记的区块。更新、移除和回滚 Instructions 时，AGX 会保留托管标记之外的内容；用户修改区块之外的内容也不会被判定为托管漂移。当前 Overlay 支持对 `SKILL.md` 追加前置/后置内容，以及禁用指定脚本；尚未支持的 rename 和目标私有 metadata 会明确拒绝。Git Skill 默认处于未审查状态：只有 `agx approve` 为精确 commit、内容摘要、Overlay 摘要、Adapter 安全版本和策略摘要记录审批后，`plan` 和 `apply` 才会继续；任一绑定值变化（包括接受更新）都会使审批失效。Status 和 doctor 可以识别未完成的事务；当 journal 记录的内容摘要仍然匹配时，`agx repair` 会安全完成补偿回滚。未知现有 Skill 目标仍默认视为冲突，只有内容完全一致时才能使用 `--adopt`；被外部修改的受管理内容不会被静默覆盖。引入回滚快照之前创建的 generation 无法恢复。GitHub Actions 会在 Linux、macOS 和 Windows 上执行原生测试与构建，并在 Linux 上运行 race 检查和 vet。
 
-本地 Skill 和 overlay 路径可以使用相对于 Catalog 的路径、绝对路径，或者以 `~/` 表示当前用户家目录。例如，在类 Unix 系统中可以使用 `skills/review`、`~/agent-skills/review` 和 `/opt/agent-skills/review`；Windows 也支持 `C:\agent-skills\review` 这样的原生绝对路径。AGX 不展开环境变量，也不支持 `~alice` 这样的其他用户家目录。Git 来源的 `path` 仍必须相对于仓库根目录。由于原始路径表达式会保存在 `agx.lock` 中，多台机器共用同一 Catalog 时，建议优先使用 `~/`，避免使用绑定单台机器的绝对路径。
+本地 Skill、overlay 和 Instructions source 路径可以使用相对于 Catalog 的路径、绝对路径，或者以 `~/` 表示当前用户家目录。例如，在类 Unix 系统中可以使用 `skills/review`、`~/agent-skills/review` 和 `/opt/agent-skills/review`；Windows 也支持 `C:\agent-skills\review` 这样的原生绝对路径。AGX 不展开环境变量，也不支持 `~alice` 这样的其他用户家目录。Git 来源的 `path` 仍必须相对于仓库根目录。由于原始路径表达式会保存在 `agx.lock` 中，多台机器共用同一 Catalog 时，建议优先使用 `~/`，避免使用绑定单台机器的绝对路径。
 
-`agx init --name personal` 会创建一个非破坏性的空 `agx.yaml`，以及 `skills/`、`overlays/` 目录；如果 Catalog 已存在则拒绝覆盖。空 Catalog 可以正常执行 list 和 lock；当空 Catalog 会移除已管理的 Skills 时，`plan` 和 `apply` 必须显式传入 `--allow-empty`。
+`agx init --name personal` 会创建一个非破坏性的空 `agx.yaml`，以及 `skills/`、`overlays/`、`instructions/` 目录；如果 Catalog 已存在则拒绝覆盖。空 Catalog 可以正常执行 list 和 lock；当空 Catalog 会移除已管理资源时，`plan` 和 `apply` 必须显式传入 `--allow-empty`。
 
 本地 Catalog 可以注册后在任意目录选择使用：
 
@@ -57,7 +57,7 @@ profiles:
       - claude
 ```
 
-可以使用 `agx list --profile work`、`agx plan --profile work` 和 `agx apply --profile work`。`agx lock` 仍锁定完整 Catalog，因此切换 Profile 不会丢失来源解析结果。应用 Profile 时，其选中集合会成为完整期望状态，之前由 AGX 管理但不再入选的目标会被移除。如果 Profile 未选中任何内容且当前存在已管理 Skill，`plan` 和 `apply` 仍要求显式传入 `--allow-empty`。新 generation 和 `agx status` 会记录所用 Profile。
+可以使用 `agx list --profile work`、`agx plan --profile work` 和 `agx apply --profile work`。`agx lock` 仍锁定完整 Catalog，因此切换 Profile 不会丢失来源解析结果。应用 Profile 时，其选中集合会成为完整期望状态，之前由 AGX 管理但不再入选的目标会被移除。如果 Profile 未选中任何可安装资源且当前存在已管理资源，`plan` 和 `apply` 仍要求显式传入 `--allow-empty`。新 generation 和 `agx status` 会记录所用 Profile。
 
 多个已注册的本地 Catalog 可以显式组合，不会改变正常的单 Catalog 查找行为。每个 Catalog 继续维护自己相邻的 `agx.lock`；分别锁定后，把注册名称以逗号分隔传给部署命令：
 
@@ -84,6 +84,20 @@ profiles:
 ```
 
 组合多个 Catalog 时，只有无歧义的 Profile 短名称才会被接受；否则必须使用 `personal/work` 这样的完全限定名称。组合 generation 会保存全部参与 Catalog 和 lockfile 的确定性摘要，`agx status` 会报告排序后的 Catalog 名称。
+
+Codex 全局 Instructions 由按顺序排列的 Markdown 片段声明。AGX 会锁定片段的精确内容，确定性拼接组合 Catalog 中启用的 Instructions，并且只管理 `$CODEX_HOME/AGENTS.md`（默认 `~/.codex/AGENTS.md`）中的标记区块：
+
+```yaml
+instructions:
+  common:
+    sources:
+      - instructions/common.md
+      - instructions/coding.md
+    targets:
+      codex: {}
+```
+
+如果存在非空的 `$CODEX_HOME/AGENTS.override.md`，`plan`、`apply` 和 `doctor` 会报告冲突，因为 Codex 会优先读取它而不是 `AGENTS.md`。Codex 在每次 run 启动时加载全局 guidance，因此 Instructions 发生变化后需要重新启动 Codex session。Profile 的 `targets` 会同时过滤 Skills 和 Instructions；除此之外，所选 Catalog 中的 Instructions 集会自动纳入部署。更新、移除和回滚只会改动 `<!-- BEGIN AGX MANAGED INSTRUCTIONS -->` 与 `<!-- END AGX MANAGED INSTRUCTIONS -->` 之间的内容。
 
 `agx lock` 会按 SHA-256 摘要保存精确的原始 Skill 和 Overlay 目录。锁定内容的审查、规划、审批和安装会校验并物化这些不可变对象，不再重复拉取 Git 仓库，也不依赖之后可能消失的本地来源目录。候选内容审查和更新检查仍解析实时来源。实时本地来源或 Overlay 一旦发生变化，仍视为 lock drift，需要重新执行 `agx lock`；来源仅仅缺失时，可以使用已验证的 Store 对象。损坏对象会被明确拒绝，不会静默修复。Store 默认位于 AGX 状态目录下的 `store/`，也可以通过绝对路径环境变量 `AGX_STORE_HOME` 调整位置。自动垃圾回收尚未实现。
 
@@ -220,26 +234,21 @@ mcpServers:
 
 instructions:
   personal:
-    scope: user
     sources:
       - instructions/common.md
       - instructions/coding.md
       - instructions/safety.md
     targets:
       codex: {}
-      claude: {}
 
 profiles:
   default:
     skills:
-      - code-review
-      - frontend-design
-    plugins:
-      - example-plugin
-    mcpServers:
-      - github
-    instructions:
-      - personal
+      include:
+        - code-review
+        - frontend-design
+    targets:
+      - codex
 ```
 
 ## 预期工作流

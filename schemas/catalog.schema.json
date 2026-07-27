@@ -29,6 +29,11 @@
       "propertyNames": { "$ref": "#/$defs/name" },
       "additionalProperties": { "$ref": "#/$defs/skill" }
     },
+    "instructions": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/instruction" }
+    },
     "profiles": {
       "type": "object",
       "propertyNames": { "$ref": "#/$defs/name" },
@@ -69,6 +74,32 @@
             "claude": { "$ref": "#/$defs/target" },
             "pi": { "$ref": "#/$defs/target" },
             "opencode": { "$ref": "#/$defs/target" }
+          }
+        }
+      }
+    },
+    "instruction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources", "targets"],
+      "properties": {
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Catalog-relative, absolute, or ~/ user-home path to a Markdown Instructions fragment."
+          }
+        },
+        "targets": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "codex": { "$ref": "#/$defs/target" }
           }
         }
       }

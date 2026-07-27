@@ -32,7 +32,9 @@ type Entry struct {
 	Target        string `json:"target"`
 	Skill         string `json:"skill"`
 	Path          string `json:"path"`
+	Kind          string `json:"kind,omitempty"`
 	ContentDigest string `json:"contentDigest"`
+	ManagedDigest string `json:"managedDigest,omitempty"`
 	Artifact      string `json:"artifact,omitempty"`
 }
 
@@ -138,10 +140,10 @@ func SaveArtifacts(generation Generation) error {
 			return fmt.Errorf("generation entry %d has no rollback artifact", i)
 		}
 		destination := filepath.Join(temporary, filepath.FromSlash(entry.Artifact))
-		if err := filetree.Copy(entry.Path, destination); err != nil {
+		if err := filetree.CopyPath(entry.Path, destination, entry.Kind); err != nil {
 			return fmt.Errorf("snapshot %s: %w", entry.Path, err)
 		}
-		digest, err := contenthash.Directory(destination)
+		digest, err := contenthash.Path(destination, entry.Kind)
 		if err != nil {
 			return err
 		}
@@ -307,6 +309,14 @@ func (g Generation) Validate() error {
 	for i, entry := range g.Entries {
 		if entry.Target == "" || entry.Skill == "" || !filepath.IsAbs(entry.Path) || !validDigest(entry.ContentDigest) {
 			return fmt.Errorf("generation entry %d is invalid", i)
+		}
+		if entry.Kind != "" && entry.Kind != "directory" && entry.Kind != "file" {
+			return fmt.Errorf("generation entry %d has invalid kind %q", i, entry.Kind)
+		}
+		if entry.ManagedDigest != "" {
+			if entry.Kind != "file" || !validDigest(entry.ManagedDigest) {
+				return fmt.Errorf("generation entry %d has invalid managed digest", i)
+			}
 		}
 		cleaned := filepath.Clean(entry.Path)
 		if _, exists := seenPaths[cleaned]; exists {

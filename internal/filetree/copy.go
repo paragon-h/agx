@@ -58,6 +58,38 @@ func Copy(source, destination string) error {
 	})
 }
 
+// CopyPath copies a regular directory or file. An empty kind is treated as a
+// directory for compatibility with state written before file targets existed.
+func CopyPath(source, destination, kind string) error {
+	switch kind {
+	case "", "directory":
+		return Copy(source, destination)
+	case "file":
+		info, err := os.Lstat(source)
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("source must be a regular file")
+		}
+		if _, err := os.Lstat(destination); err == nil {
+			return fmt.Errorf("destination already exists: %s", destination)
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+			return err
+		}
+		permissions := os.FileMode(0o644)
+		if info.Mode()&0o111 != 0 {
+			permissions = 0o755
+		}
+		return copyFile(source, destination, permissions)
+	default:
+		return fmt.Errorf("unsupported content kind %q", kind)
+	}
+}
+
 func copyFile(source, destination string, permissions os.FileMode) error {
 	input, err := os.Open(source)
 	if err != nil {

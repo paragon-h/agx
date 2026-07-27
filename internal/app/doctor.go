@@ -29,12 +29,16 @@ type doctorReport struct {
 }
 
 type doctorTarget struct {
-	Name            string `json:"name"`
-	Installed       bool   `json:"installed"`
-	Executable      string `json:"executable,omitempty"`
-	SkillsDir       string `json:"skillsDir"`
-	SkillsDirExists bool   `json:"skillsDirExists"`
-	Error           string `json:"error,omitempty"`
+	Name                       string `json:"name"`
+	Installed                  bool   `json:"installed"`
+	Executable                 string `json:"executable,omitempty"`
+	SkillsDir                  string `json:"skillsDir"`
+	SkillsDirExists            bool   `json:"skillsDirExists"`
+	InstructionsFile           string `json:"instructionsFile,omitempty"`
+	InstructionsFileExists     bool   `json:"instructionsFileExists,omitempty"`
+	InstructionsOverrideFile   string `json:"instructionsOverrideFile,omitempty"`
+	InstructionsOverrideActive bool   `json:"instructionsOverrideActive,omitempty"`
+	Error                      string `json:"error,omitempty"`
 }
 
 func (r *Runner) doctor(ctx context.Context, args []string) int {
@@ -110,6 +114,31 @@ func (r *Runner) doctor(ctx context.Context, args []string) int {
 				entry.Error = appendDiagnostic(entry.Error, statErr.Error())
 				unavailable = true
 			}
+			entry.InstructionsFile = paths.InstructionsFile
+			if paths.InstructionsFile != "" {
+				if info, statErr := os.Stat(paths.InstructionsFile); statErr == nil {
+					entry.InstructionsFileExists = info.Mode().IsRegular()
+					if !info.Mode().IsRegular() {
+						entry.Error = appendDiagnostic(entry.Error, "Instructions path exists but is not a regular file")
+						unavailable = true
+					}
+				} else if !os.IsNotExist(statErr) {
+					entry.Error = appendDiagnostic(entry.Error, statErr.Error())
+					unavailable = true
+				}
+			}
+			entry.InstructionsOverrideFile = paths.InstructionsOverrideFile
+			if paths.InstructionsOverrideFile != "" {
+				content, exists, overrideErr := readRegularFile(paths.InstructionsOverrideFile)
+				if overrideErr != nil {
+					entry.Error = appendDiagnostic(entry.Error, overrideErr.Error())
+					unavailable = true
+				} else if exists && len(content) != 0 {
+					entry.InstructionsOverrideActive = true
+					entry.Error = appendDiagnostic(entry.Error, "non-empty Instructions override takes precedence over AGENTS.md")
+					unavailable = true
+				}
+			}
 		}
 		report.Targets = append(report.Targets, entry)
 	}
@@ -140,6 +169,13 @@ func catalogTargets(value catalog.Catalog) []string {
 	seen := make(map[string]struct{})
 	for _, skill := range value.Skills {
 		for target, config := range skill.Targets {
+			if config.Enabled == nil || *config.Enabled {
+				seen[target] = struct{}{}
+			}
+		}
+	}
+	for _, instruction := range value.Instructions {
+		for target, config := range instruction.Targets {
 			if config.Enabled == nil || *config.Enabled {
 				seen[target] = struct{}{}
 			}
@@ -192,6 +228,20 @@ func renderDoctorText(w io.Writer, report doctorReport) {
 				state = "exists"
 			}
 			fmt.Fprintf(w, "  skills: %s (%s)\n", target.SkillsDir, state)
+		}
+		if target.InstructionsFile != "" {
+			state := "missing"
+			if target.InstructionsFileExists {
+				state = "exists"
+			}
+			_, _ = fmt.Fprintf(w, "  instructions: %s (%s)\n", target.InstructionsFile, state)
+		}
+		if target.InstructionsOverrideFile != "" {
+			state := "inactive"
+			if target.InstructionsOverrideActive {
+				state = "active"
+			}
+			fmt.Fprintf(w, "  instructions override: %s (%s)\n", target.InstructionsOverrideFile, state)
 		}
 		if target.Error != "" {
 			fmt.Fprintf(w, "  error: %s\n", target.Error)

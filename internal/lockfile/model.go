@@ -1,6 +1,8 @@
 package lockfile
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"regexp"
@@ -21,10 +23,23 @@ var (
 )
 
 type Lockfile struct {
-	APIVersion    string                 `json:"apiVersion" yaml:"apiVersion"`
-	Kind          string                 `json:"kind" yaml:"kind"`
-	CatalogDigest string                 `json:"catalogDigest" yaml:"catalogDigest"`
-	Skills        map[string]LockedSkill `json:"skills" yaml:"skills"`
+	APIVersion    string                       `json:"apiVersion" yaml:"apiVersion"`
+	Kind          string                       `json:"kind" yaml:"kind"`
+	CatalogDigest string                       `json:"catalogDigest" yaml:"catalogDigest"`
+	Skills        map[string]LockedSkill       `json:"skills" yaml:"skills"`
+	Instructions  map[string]LockedInstruction `json:"instructions,omitempty" yaml:"instructions,omitempty"`
+}
+
+type LockedInstruction struct {
+	Sources       []LockedInstructionSource `json:"sources" yaml:"sources"`
+	Content       string                    `json:"content" yaml:"content"`
+	ContentDigest string                    `json:"contentDigest" yaml:"contentDigest"`
+	LockedAt      string                    `json:"lockedAt" yaml:"lockedAt"`
+}
+
+type LockedInstructionSource struct {
+	Path          string `json:"path" yaml:"path"`
+	ContentDigest string `json:"contentDigest" yaml:"contentDigest"`
 }
 
 type LockedSkill struct {
@@ -60,7 +75,43 @@ func (l Lockfile) Validate() error {
 			return fmt.Errorf("skill %q: %w", name, err)
 		}
 	}
+	for name, instruction := range l.Instructions {
+		if !catalog.ValidName(name) {
+			return fmt.Errorf("instructions %q has an invalid short name", name)
+		}
+		if err := instruction.Validate(); err != nil {
+			return fmt.Errorf("instructions %q: %w", name, err)
+		}
+	}
 	return nil
+}
+
+func (i LockedInstruction) Validate() error {
+	if len(i.Sources) == 0 {
+		return errors.New("sources must contain at least one Markdown file")
+	}
+	seen := make(map[string]struct{}, len(i.Sources))
+	for index, source := range i.Sources {
+		if !catalog.ValidLocalPath(source.Path) || !validDigest(source.ContentDigest) {
+			return fmt.Errorf("source %d is invalid", index)
+		}
+		if _, exists := seen[source.Path]; exists {
+			return fmt.Errorf("source path %q is duplicated", source.Path)
+		}
+		seen[source.Path] = struct{}{}
+	}
+	if !validDigest(i.ContentDigest) || digestContent(i.Content) != i.ContentDigest {
+		return errors.New("content does not match contentDigest")
+	}
+	if _, err := time.Parse(time.RFC3339, i.LockedAt); err != nil {
+		return errors.New("lockedAt must be an RFC 3339 timestamp")
+	}
+	return nil
+}
+
+func digestContent(content string) string {
+	digest := sha256.Sum256([]byte(content))
+	return "sha256:" + hex.EncodeToString(digest[:])
 }
 
 func (s LockedSkill) Validate() error {

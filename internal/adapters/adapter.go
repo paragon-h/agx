@@ -22,7 +22,9 @@ type Detection struct {
 }
 
 type Paths struct {
-	SkillsDir string
+	SkillsDir                string
+	InstructionsFile         string
+	InstructionsOverrideFile string
 }
 
 func DetectExecutable(name string) Detection {

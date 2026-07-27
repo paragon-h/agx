@@ -89,6 +89,48 @@ func TestSaveLoadAndResolveGenerationArtifacts(t *testing.T) {
 	}
 }
 
+func TestSaveArtifactsSnapshotsManagedFile(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGX_STATE_HOME", root)
+	target := filepath.Join(root, "codex", "AGENTS.md")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("managed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := contenthash.File(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := Generation{
+		ID:             "generation-file-snapshot",
+		CreatedAt:      "2026-07-23T10:00:00Z",
+		CatalogDigest:  testDigest,
+		LockfileDigest: testDigest,
+		Entries: []Entry{{
+			Target:        "codex",
+			Skill:         "instructions",
+			Path:          target,
+			Kind:          "file",
+			ContentDigest: digest,
+			ManagedDigest: digest,
+		}},
+	}
+	AssignArtifacts(generation.Entries)
+	if err := SaveArtifacts(generation); err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := ArtifactPath(generation.ID, generation.Entries[0].Artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactDigest, err := contenthash.File(artifact)
+	if err != nil || artifactDigest != digest {
+		t.Fatalf("artifact digest = %q, err = %v", artifactDigest, err)
+	}
+}
+
 func TestCurrentMissingReturnsNil(t *testing.T) {
 	t.Setenv("AGX_STATE_HOME", t.TempDir())
 	loaded, err := Current()

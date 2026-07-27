@@ -45,6 +45,61 @@ func TestRepairJournalRestoresInterruptedUpdate(t *testing.T) {
 	}
 }
 
+func TestRepairJournalRestoresInterruptedFileUpdate(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGX_STATE_HOME", filepath.Join(root, "state"))
+	target := filepath.Join(root, "codex", "AGENTS.md")
+	backup := filepath.Join(root, "codex", ".agx-backup-test", "content")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(backup), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backup, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	desired, err := contenthash.File(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := contenthash.File(backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal := Journal{
+		ID:    "transaction-file-update",
+		State: StateApplying,
+		Targets: []TargetChange{{
+			Agent:         "codex",
+			Kind:          "file",
+			Action:        "update",
+			TargetPath:    target,
+			StagePath:     filepath.Join(root, "codex", ".agx-stage-test", "content"),
+			BackupPath:    backup,
+			DesiredDigest: desired,
+			CurrentDigest: current,
+			Switched:      true,
+		}},
+	}
+	if err := SaveJournal(journal); err != nil {
+		t.Fatal(err)
+	}
+	if err := RepairJournal(&journal); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "old\n" {
+		t.Fatalf("restored file = %q", content)
+	}
+}
+
 func TestRepairJournalFinalizesCommittedTransaction(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("AGX_STATE_HOME", filepath.Join(root, "state"))

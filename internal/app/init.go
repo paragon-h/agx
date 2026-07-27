@@ -58,6 +58,9 @@ func (r *Runner) init(args []string) int {
 	if err := os.MkdirAll(filepath.Join(root, "overlays"), 0o755); err != nil {
 		return r.commandError(ExitFailure, "AGX_INIT_FAILED", err)
 	}
+	if err := os.MkdirAll(filepath.Join(root, "instructions"), 0o755); err != nil {
+		return r.commandError(ExitFailure, "AGX_INIT_FAILED", err)
+	}
 	file, err := os.OpenFile(absolute, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return r.commandError(ExitFailure, "AGX_INIT_FAILED", err)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/paragon-h/agx/internal/contenthash"
 	"github.com/paragon-h/agx/internal/installer"
+	"github.com/paragon-h/agx/internal/instructions"
 	"github.com/paragon-h/agx/internal/state"
 )
 
@@ -31,6 +32,7 @@ type statusEntry struct {
 	Target         string `json:"target"`
 	Skill          string `json:"skill"`
 	Path           string `json:"path"`
+	Kind           string `json:"kind,omitempty"`
 	State          string `json:"state"`
 	ExpectedDigest string `json:"expectedDigest"`
 	ActualDigest   string `json:"actualDigest,omitempty"`
@@ -124,6 +126,7 @@ func inspectStatusEntry(entry state.Entry) statusEntry {
 		Target:         entry.Target,
 		Skill:          entry.Skill,
 		Path:           entry.Path,
+		Kind:           entry.Kind,
 		ExpectedDigest: entry.ContentDigest,
 	}
 	info, err := os.Lstat(entry.Path)
@@ -137,18 +140,39 @@ func inspectStatusEntry(entry state.Entry) statusEntry {
 		result.Reason = err.Error()
 		return result
 	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+	if !matchesTargetKind(info, entry.Kind) {
 		result.State = "invalid"
-		result.Reason = "managed target is not a regular directory"
+		result.Reason = "managed target has an unexpected file type"
 		return result
 	}
-	digest, err := contenthash.Directory(entry.Path)
+	digest, err := contenthash.Path(entry.Path, entry.Kind)
 	if err != nil {
 		result.State = "invalid"
 		result.Reason = err.Error()
 		return result
 	}
 	result.ActualDigest = digest
+	if entry.Kind == "file" && entry.ManagedDigest != "" {
+		content, err := os.ReadFile(entry.Path)
+		if err != nil {
+			result.State = "invalid"
+			result.Reason = err.Error()
+			return result
+		}
+		managedDigest, found, err := instructions.DigestManaged(content)
+		if err != nil {
+			result.State = "invalid"
+			result.Reason = err.Error()
+			return result
+		}
+		if !found || managedDigest != entry.ManagedDigest {
+			result.State = "modified"
+			result.Reason = "managed Instructions differ from the active generation"
+			return result
+		}
+		result.State = "healthy"
+		return result
+	}
 	if digest != entry.ContentDigest {
 		result.State = "modified"
 		result.Reason = "managed target content differs from the active generation"

@@ -14,6 +14,7 @@ import (
 	"github.com/paragon-h/agx/internal/contenthash"
 	"github.com/paragon-h/agx/internal/filetree"
 	"github.com/paragon-h/agx/internal/installer"
+	"github.com/paragon-h/agx/internal/instructions"
 	"github.com/paragon-h/agx/internal/state"
 )
 
@@ -98,7 +99,7 @@ func (r *Runner) rollback(args []string) int {
 	if err := preflightDeployments(deployments); err != nil {
 		return r.commandError(ExitTargetConflict, "TARGET_CONFLICT", err)
 	}
-	generation := createRollbackGeneration(*target, *current)
+	generation := createRollbackGeneration(*target, *current, report)
 	mutations := report.Summary.Add + report.Summary.Update + report.Summary.Remove
 	if mutations == 0 {
 		if err := saveGenerationWithArtifacts(generation); err != nil {
@@ -148,19 +149,34 @@ func buildRollbackPlan(current, target state.Generation) (planReport, error) {
 		if err != nil {
 			return planReport{}, fmt.Errorf("generation %s cannot restore %s: %w", target.ID, desired.Skill, err)
 		}
-		digest, err := contenthash.Directory(artifact)
+		digest, err := contenthash.Path(artifact, desired.Kind)
 		if err != nil {
 			return planReport{}, fmt.Errorf("generation %s artifact for %s: %w", target.ID, desired.Skill, err)
 		}
 		if digest != desired.ContentDigest {
 			return planReport{}, fmt.Errorf("generation %s artifact for %s has an unexpected digest", target.ID, desired.Skill)
 		}
-		change := planChange{Target: desired.Target, Skill: desired.Skill, Path: desired.Path, DesiredDigest: desired.ContentDigest}
+		if desired.Kind == "file" && desired.ManagedDigest != "" {
+			artifactContent, readErr := os.ReadFile(artifact)
+			if readErr != nil {
+				return planReport{}, fmt.Errorf("generation %s artifact for %s: %w", target.ID, desired.Skill, readErr)
+			}
+			parsed, parseErr := instructions.Parse(artifactContent)
+			if parseErr != nil || !parsed.Found || contenthash.Bytes(parsed.Managed) != desired.ManagedDigest {
+				return planReport{}, fmt.Errorf("generation %s artifact for %s has invalid managed Instructions", target.ID, desired.Skill)
+			}
+			existing, managed := currentByPath[filepath.Clean(desired.Path)]
+			change := inspectInstructionTarget(desired.Target, desired.Path, desiredInstruction{Target: desired.Target, Content: parsed.Managed, ManagedDigest: desired.ManagedDigest}, false, managed, existing)
+			report.Changes = append(report.Changes, change)
+			addPlanSummary(&report.Summary, change.Action)
+			continue
+		}
+		change := planChange{Target: desired.Target, Skill: desired.Skill, Path: desired.Path, Kind: desired.Kind, DesiredDigest: desired.ContentDigest}
 		if existing, ok := currentByPath[filepath.Clean(desired.Path)]; ok {
 			change.CurrentDigest = inspectRollbackCurrent(existing, &change)
 			if change.Action == "conflict" {
 				report.Summary.Conflict++
-			} else if existing.Target != desired.Target || existing.Skill != desired.Skill {
+			} else if existing.Target != desired.Target || existing.Skill != desired.Skill || existing.Kind != desired.Kind {
 				change.Action = "conflict"
 				change.Reason = "generation ownership differs"
 				report.Summary.Conflict++
@@ -189,7 +205,13 @@ func buildRollbackPlan(current, target state.Generation) (planReport, error) {
 		if _, ok := targetByPath[filepath.Clean(existing.Path)]; ok {
 			continue
 		}
-		change := planChange{Target: existing.Target, Skill: existing.Skill, Path: existing.Path, Action: "remove"}
+		if existing.Kind == "file" && existing.ManagedDigest != "" {
+			change := inspectInstructionRemoval(existing)
+			report.Changes = append(report.Changes, change)
+			addPlanSummary(&report.Summary, change.Action)
+			continue
+		}
+		change := planChange{Target: existing.Target, Skill: existing.Skill, Path: existing.Path, Kind: existing.Kind, Action: "remove"}
 		change.CurrentDigest = inspectRollbackCurrent(existing, &change)
 		if change.Action == "conflict" {
 			report.Summary.Conflict++
@@ -214,16 +236,30 @@ func inspectRollbackCurrent(entry state.Entry, change *planChange) string {
 		change.Reason = "active managed target is missing or unreadable"
 		return ""
 	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+	if !matchesTargetKind(info, entry.Kind) {
 		change.Action = "conflict"
-		change.Reason = "active managed target is not a regular directory"
+		change.Reason = "active managed target has an unexpected file type"
 		return ""
 	}
-	digest, err := contenthash.Directory(entry.Path)
+	digest, err := contenthash.Path(entry.Path, entry.Kind)
 	if err != nil {
 		change.Action = "conflict"
 		change.Reason = err.Error()
 		return ""
+	}
+	if entry.Kind == "file" && entry.ManagedDigest != "" {
+		content, readErr := os.ReadFile(entry.Path)
+		if readErr != nil {
+			change.Action = "conflict"
+			change.Reason = readErr.Error()
+			return digest
+		}
+		managedDigest, found, parseErr := instructions.DigestManaged(content)
+		if parseErr != nil || !found || managedDigest != entry.ManagedDigest {
+			change.Action = "conflict"
+			change.Reason = "managed Instructions were modified outside AGX"
+		}
+		return digest
 	}
 	if digest != entry.ContentDigest {
 		change.Action = "conflict"
@@ -237,13 +273,8 @@ func stageRollbackDeployments(target state.Generation, report planReport) ([]dep
 	deployments := make([]deployment, 0, len(report.Changes))
 	for _, change := range report.Changes {
 		deployments = append(deployments, deployment{change: change})
-		if change.Action != "add" && change.Action != "update" {
+		if change.Action != "add" && change.Action != "update" && change.Action != "release" {
 			continue
-		}
-		entry := targetByPath[filepath.Clean(change.Path)]
-		artifact, err := state.ArtifactPath(target.ID, entry.Artifact)
-		if err != nil {
-			return deployments, err
 		}
 		if err := os.MkdirAll(filepath.Dir(change.Path), 0o755); err != nil {
 			return deployments, err
@@ -255,14 +286,25 @@ func stageRollbackDeployments(target state.Generation, report planReport) ([]dep
 		item := &deployments[len(deployments)-1]
 		item.stageRoot = stageRoot
 		item.stagePath = filepath.Join(stageRoot, "content")
-		if err := filetree.Copy(artifact, item.stagePath); err != nil {
-			return deployments, err
+		if change.Kind == "file" {
+			if err := os.WriteFile(item.stagePath, change.content, 0o644); err != nil {
+				return deployments, err
+			}
+		} else {
+			entry := targetByPath[filepath.Clean(change.Path)]
+			artifact, err := state.ArtifactPath(target.ID, entry.Artifact)
+			if err != nil {
+				return deployments, err
+			}
+			if err := filetree.CopyPath(artifact, item.stagePath, change.Kind); err != nil {
+				return deployments, err
+			}
 		}
 	}
 	return deployments, nil
 }
 
-func createRollbackGeneration(target, current state.Generation) state.Generation {
+func createRollbackGeneration(target, current state.Generation, report planReport) state.Generation {
 	now := time.Now().UTC()
 	generation := state.Generation{
 		ID:             now.Format("20060102T150405.000000000Z"),
@@ -273,7 +315,15 @@ func createRollbackGeneration(target, current state.Generation) state.Generation
 		Profile:        target.Profile,
 		PreviousID:     current.ID,
 	}
+	changes := make(map[string]planChange, len(report.Changes))
+	for _, change := range report.Changes {
+		changes[filepath.Clean(change.Path)] = change
+	}
 	for _, entry := range target.Entries {
+		if change, exists := changes[filepath.Clean(entry.Path)]; exists {
+			entry.ContentDigest = change.DesiredDigest
+			entry.ManagedDigest = change.ManagedDigest
+		}
 		entry.Artifact = ""
 		generation.Entries = append(generation.Entries, entry)
 	}

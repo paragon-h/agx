@@ -28,7 +28,7 @@ func TestRunnerInitCreatesEmptyCatalog(t *testing.T) {
 	if document.Catalog.Metadata.Name != "personal-catalog" || len(document.Catalog.Skills) != 0 {
 		t.Fatalf("initialized catalog = %#v", document.Catalog)
 	}
-	for _, directory := range []string{"skills", "overlays"} {
+	for _, directory := range []string{"skills", "overlays", "instructions"} {
 		info, err := os.Stat(filepath.Join(root, directory))
 		if err != nil || !info.IsDir() {
 			t.Fatalf("initialized directory %q: info=%v err=%v", directory, info, err)

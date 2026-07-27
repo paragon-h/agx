@@ -48,7 +48,7 @@ func (r *Runner) apply(ctx context.Context, args []string) int {
 	lockPath := flags.String("lockfile", "", "lockfile path (defaults beside the catalog)")
 	profileName := flags.String("profile", "", "select Skills and targets from a named profile")
 	adopt := flags.Bool("adopt", false, "adopt unmanaged targets with identical content")
-	allowEmpty := flags.Bool("allow-empty", false, "allow an empty desired selection to remove managed Skills")
+	allowEmpty := flags.Bool("allow-empty", false, "allow an empty desired selection to remove managed resources")
 	jsonOutput := flags.Bool("json", false, "emit JSON")
 	if err := flags.Parse(args); err != nil {
 		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", err)
@@ -212,7 +212,7 @@ func stageDeployments(ctx context.Context, desired desiredState, report planRepo
 	for _, change := range report.Changes {
 		item := deployment{change: change}
 		deployments = append(deployments, item)
-		if change.Action != "add" && change.Action != "update" {
+		if change.Action != "add" && change.Action != "update" && change.Action != "release" {
 			continue
 		}
 		parent := filepath.Dir(change.Path)
@@ -226,14 +226,20 @@ func stageDeployments(ctx context.Context, desired desiredState, report planRepo
 		deployments[len(deployments)-1].stageRoot = stageRoot
 		stagePath := filepath.Join(stageRoot, "content")
 		deployments[len(deployments)-1].stagePath = stagePath
-		skill, exists := desired.skillByQualifiedName(change.Skill)
-		if !exists {
-			return deployments, fmt.Errorf("planned skill %s is not in the desired state", change.Skill)
+		if change.Kind == "file" {
+			if err := os.WriteFile(stagePath, change.content, 0o644); err != nil {
+				return deployments, fmt.Errorf("stage %s: %w", change.Skill, err)
+			}
+		} else {
+			skill, exists := desired.skillByQualifiedName(change.Skill)
+			if !exists {
+				return deployments, fmt.Errorf("planned skill %s is not in the desired state", change.Skill)
+			}
+			if err := materializeSkill(ctx, skill.Document, skill.Skill, skill.LockedSkill, stagePath); err != nil {
+				return deployments, fmt.Errorf("stage %s: %w", change.Skill, err)
+			}
 		}
-		if err := materializeSkill(ctx, skill.Document, skill.Skill, skill.LockedSkill, stagePath); err != nil {
-			return deployments, fmt.Errorf("stage %s: %w", change.Skill, err)
-		}
-		digest, err := contenthash.Directory(stagePath)
+		digest, err := contenthash.Path(stagePath, change.Kind)
 		if err != nil {
 			return deployments, err
 		}
@@ -270,14 +276,14 @@ func preflightDeployments(deployments []deployment) error {
 				continue
 			}
 			fallthrough
-		case "update", "adopt", "unchanged":
+		case "update", "release", "adopt", "unchanged":
 			if err != nil {
 				return fmt.Errorf("target changed after planning: %s: %w", item.change.Path, err)
 			}
-			if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			if !matchesTargetKind(info, item.change.Kind) {
 				return fmt.Errorf("target changed after planning: %s", item.change.Path)
 			}
-			digest, err := contenthash.Directory(item.change.Path)
+			digest, err := contenthash.Path(item.change.Path, item.change.Kind)
 			if err != nil {
 				return err
 			}
@@ -296,13 +302,13 @@ func prepareJournal(deployments []deployment) (*installer.Journal, error) {
 	}
 	for i := range deployments {
 		item := &deployments[i]
-		if item.change.Action != "add" && item.change.Action != "update" && item.change.Action != "remove" {
+		if item.change.Action != "add" && item.change.Action != "update" && item.change.Action != "release" && item.change.Action != "remove" {
 			continue
 		}
 		if item.change.Action == "remove" && item.change.CurrentDigest == "" {
 			continue
 		}
-		if item.change.Action == "update" || item.change.Action == "remove" {
+		if item.change.Action == "update" || item.change.Action == "release" || item.change.Action == "remove" {
 			backupRoot, err := os.MkdirTemp(filepath.Dir(item.change.Path), ".agx-backup-*")
 			if err != nil {
 				return nil, err
@@ -310,9 +316,14 @@ func prepareJournal(deployments []deployment) (*installer.Journal, error) {
 			item.backupRoot = backupRoot
 			item.backupPath = filepath.Join(backupRoot, "content")
 		}
+		journalAction := item.change.Action
+		if journalAction == "release" {
+			journalAction = "update"
+		}
 		journal.Targets = append(journal.Targets, installer.TargetChange{
 			Agent:         item.change.Target,
-			Action:        item.change.Action,
+			Kind:          item.change.Kind,
+			Action:        journalAction,
 			TargetPath:    item.change.Path,
 			StagePath:     item.stagePath,
 			BackupPath:    item.backupPath,
@@ -347,7 +358,7 @@ func switchDeployments(deployments []deployment, journal *installer.Journal) err
 			if err := recordSwitched(item); err != nil {
 				return err
 			}
-		case "update", "remove":
+		case "update", "release", "remove":
 			if item.change.Action == "remove" && item.change.CurrentDigest == "" {
 				continue
 			}
@@ -358,7 +369,7 @@ func switchDeployments(deployments []deployment, journal *installer.Journal) err
 			if err := recordSwitched(item); err != nil {
 				return err
 			}
-			if item.change.Action == "update" {
+			if item.change.Action == "update" || item.change.Action == "release" {
 				if err := os.Rename(item.stagePath, item.change.Path); err != nil {
 					return err
 				}
@@ -402,7 +413,7 @@ func rollbackDeploymentsWithProgress(deployments []deployment, restored func(str
 		item := &deployments[i]
 		changed := false
 		if item.installed {
-			if err := os.RemoveAll(item.change.Path); err != nil {
+			if err := removeDeploymentTarget(item.change.Path, item.change.Kind); err != nil {
 				rollbackErrors = append(rollbackErrors, err.Error())
 				continue
 			}
@@ -453,13 +464,32 @@ func createGeneration(desired desiredState, report planReport, previous *state.G
 				Target:        change.Target,
 				Skill:         change.Skill,
 				Path:          change.Path,
+				Kind:          change.Kind,
 				ContentDigest: change.DesiredDigest,
+				ManagedDigest: change.ManagedDigest,
 			})
 		}
 	}
 	state.SortEntries(generation.Entries)
 	state.AssignArtifacts(generation.Entries)
 	return generation, nil
+}
+
+func matchesTargetKind(info os.FileInfo, kind string) bool {
+	if info.Mode()&os.ModeSymlink != 0 {
+		return false
+	}
+	if kind == "file" {
+		return info.Mode().IsRegular()
+	}
+	return info.IsDir()
+}
+
+func removeDeploymentTarget(path, kind string) error {
+	if kind == "file" {
+		return os.Remove(path)
+	}
+	return os.RemoveAll(path)
 }
 
 func cleanupDeployments(deployments []deployment) {

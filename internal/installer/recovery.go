@@ -55,7 +55,7 @@ func RepairJournal(journal *Journal) error {
 func repairTarget(target *TargetChange) error {
 	switch target.Action {
 	case "add":
-		exists, digest, err := directoryDigest(target.TargetPath)
+		exists, digest, err := targetDigest(target.TargetPath, target.Kind)
 		if err != nil {
 			return err
 		}
@@ -63,7 +63,7 @@ func repairTarget(target *TargetChange) error {
 			if target.DesiredDigest == "" || digest != target.DesiredDigest {
 				return fmt.Errorf("installed target does not match the transaction digest")
 			}
-			if err := os.RemoveAll(target.TargetPath); err != nil {
+			if err := removeTarget(target.TargetPath, target.Kind); err != nil {
 				return err
 			}
 			target.Switched = true
@@ -82,11 +82,11 @@ func repairTarget(target *TargetChange) error {
 }
 
 func repairUpdatedTarget(target *TargetChange) error {
-	backupExists, backupDigest, err := directoryDigest(target.BackupPath)
+	backupExists, backupDigest, err := targetDigest(target.BackupPath, target.Kind)
 	if err != nil {
 		return err
 	}
-	targetExists, targetDigest, err := directoryDigest(target.TargetPath)
+	targetExists, targetDigestValue, err := targetDigest(target.TargetPath, target.Kind)
 	if err != nil {
 		return err
 	}
@@ -95,10 +95,10 @@ func repairUpdatedTarget(target *TargetChange) error {
 			return fmt.Errorf("backup does not match the pre-transaction digest")
 		}
 		if targetExists {
-			if target.DesiredDigest == "" || targetDigest != target.DesiredDigest {
+			if target.DesiredDigest == "" || targetDigestValue != target.DesiredDigest {
 				return fmt.Errorf("installed target does not match the transaction digest")
 			}
-			if err := os.RemoveAll(target.TargetPath); err != nil {
+			if err := removeTarget(target.TargetPath, target.Kind); err != nil {
 				return err
 			}
 		}
@@ -112,7 +112,7 @@ func repairUpdatedTarget(target *TargetChange) error {
 	if !targetExists {
 		return fmt.Errorf("both target and backup are missing")
 	}
-	if target.CurrentDigest == "" || targetDigest != target.CurrentDigest {
+	if target.CurrentDigest == "" || targetDigestValue != target.CurrentDigest {
 		return fmt.Errorf("target is not in the pre-transaction state and no backup exists")
 	}
 	if target.Switched {
@@ -122,11 +122,11 @@ func repairUpdatedTarget(target *TargetChange) error {
 }
 
 func repairRemovedTarget(target *TargetChange) error {
-	backupExists, backupDigest, err := directoryDigest(target.BackupPath)
+	backupExists, backupDigest, err := targetDigest(target.BackupPath, target.Kind)
 	if err != nil {
 		return err
 	}
-	targetExists, targetDigest, err := directoryDigest(target.TargetPath)
+	targetExists, targetDigestValue, err := targetDigest(target.TargetPath, target.Kind)
 	if err != nil {
 		return err
 	}
@@ -147,7 +147,7 @@ func repairRemovedTarget(target *TargetChange) error {
 	if !targetExists {
 		return fmt.Errorf("both target and backup are missing")
 	}
-	if target.CurrentDigest == "" || targetDigest != target.CurrentDigest {
+	if target.CurrentDigest == "" || targetDigestValue != target.CurrentDigest {
 		return fmt.Errorf("target is not in the pre-transaction state and no backup exists")
 	}
 	if target.Switched {
@@ -158,7 +158,7 @@ func repairRemovedTarget(target *TargetChange) error {
 
 func verifyCommittedTargets(journal Journal) error {
 	for _, target := range journal.Targets {
-		exists, digest, err := directoryDigest(target.TargetPath)
+		exists, digest, err := targetDigest(target.TargetPath, target.Kind)
 		if err != nil {
 			return err
 		}
@@ -176,7 +176,7 @@ func verifyCommittedTargets(journal Journal) error {
 	return nil
 }
 
-func directoryDigest(path string) (bool, string, error) {
+func targetDigest(path, kind string) (bool, string, error) {
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		return false, "", nil
@@ -184,11 +184,27 @@ func directoryDigest(path string) (bool, string, error) {
 	if err != nil {
 		return false, "", err
 	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return true, "", fmt.Errorf("%s is not a regular directory", path)
+	switch kind {
+	case "", "directory":
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return true, "", fmt.Errorf("%s is not a regular directory", path)
+		}
+	case "file":
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return true, "", fmt.Errorf("%s is not a regular file", path)
+		}
+	default:
+		return true, "", fmt.Errorf("unsupported target kind %q", kind)
 	}
-	digest, err := contenthash.Directory(path)
+	digest, err := contenthash.Path(path, kind)
 	return true, digest, err
+}
+
+func removeTarget(path, kind string) error {
+	if kind == "file" {
+		return os.Remove(path)
+	}
+	return os.RemoveAll(path)
 }
 
 func cleanupTransactionDirectories(journal Journal) error {

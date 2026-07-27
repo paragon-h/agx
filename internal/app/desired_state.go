@@ -12,6 +12,7 @@ import (
 
 	"github.com/paragon-h/agx/internal/catalog"
 	"github.com/paragon-h/agx/internal/contenthash"
+	"github.com/paragon-h/agx/internal/instructions"
 	"github.com/paragon-h/agx/internal/lockfile"
 )
 
@@ -32,9 +33,16 @@ type desiredSkill struct {
 }
 
 type desiredState struct {
-	Catalogs []catalogDeploymentInput
-	Skills   []desiredSkill
-	Profile  string
+	Catalogs     []catalogDeploymentInput
+	Skills       []desiredSkill
+	Instructions []desiredInstruction
+	Profile      string
+}
+
+type desiredInstruction struct {
+	Target        string
+	Content       []byte
+	ManagedDigest string
 }
 
 type invalidProfileError struct {
@@ -91,6 +99,24 @@ func loadDesiredState(ctx context.Context, collection catalog.Collection, profil
 			LockedSkill:   lockedSkill,
 		})
 	}
+	instructionFragments := make(map[string][][]byte)
+	for _, resource := range selection.Instructions {
+		input := inputs[resource.CatalogName]
+		lockedInstruction, exists := input.Locked.Instructions[resource.Name]
+		if !exists {
+			return desiredState{}, ExitLockOutdated, fmt.Errorf("catalog %q instructions %q is missing from lockfile", resource.CatalogName, resource.Name)
+		}
+		for _, target := range enabledTargets(resource.Instruction.Targets) {
+			instructionFragments[target] = append(instructionFragments[target], []byte(lockedInstruction.Content))
+		}
+	}
+	for _, target := range sortedMapKeys(instructionFragments) {
+		content, err := instructions.Compose(instructionFragments[target])
+		if err != nil {
+			return desiredState{}, ExitInvalidConfig, fmt.Errorf("compose %s Instructions: %w", target, err)
+		}
+		result.Instructions = append(result.Instructions, desiredInstruction{Target: target, Content: content, ManagedDigest: contenthash.Bytes(content)})
+	}
 	return result, ExitSuccess, nil
 }
 
@@ -117,12 +143,34 @@ func (d desiredState) targetNames() []string {
 			seen[target] = struct{}{}
 		}
 	}
+	for _, instruction := range d.Instructions {
+		seen[instruction.Target] = struct{}{}
+	}
 	names := make([]string, 0, len(seen))
 	for name := range seen {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	return names
+}
+
+func (d desiredState) skillTargetNames() map[string]struct{} {
+	seen := make(map[string]struct{})
+	for _, skill := range d.Skills {
+		for _, target := range enabledTargets(skill.Skill.Targets) {
+			seen[target] = struct{}{}
+		}
+	}
+	return seen
+}
+
+func sortedMapKeys[T any](values map[string]T) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func (d desiredState) skillByQualifiedName(name string) (desiredSkill, bool) {

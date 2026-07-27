@@ -2,6 +2,7 @@ package codex
 
 import (
 	"context"
+	"path/filepath"
 
 	"github.com/paragon-h/agx/internal/adapters"
 )
@@ -17,9 +18,13 @@ func (Adapter) Detect(context.Context) (adapters.Detection, error) {
 }
 
 func (Adapter) ResolvePaths(context.Context) (adapters.Paths, error) {
-	path, err := adapters.SkillsPath("CODEX_HOME", ".codex")
+	home, err := adapters.ResolveHome("CODEX_HOME", ".codex")
 	if err != nil {
 		return adapters.Paths{}, err
 	}
-	return adapters.Paths{SkillsDir: path}, nil
+	return adapters.Paths{
+		SkillsDir:                filepath.Join(home, "skills"),
+		InstructionsFile:         filepath.Join(home, "AGENTS.md"),
+		InstructionsOverrideFile: filepath.Join(home, "AGENTS.override.md"),
+	}, nil
 }

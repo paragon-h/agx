@@ -16,4 +16,10 @@ func TestResolvePaths(t *testing.T) {
 	if want := filepath.Join(home, "skills"); paths.SkillsDir != want {
 		t.Fatalf("SkillsDir = %q, want %q", paths.SkillsDir, want)
 	}
+	if want := filepath.Join(home, "AGENTS.md"); paths.InstructionsFile != want {
+		t.Fatalf("InstructionsFile = %q, want %q", paths.InstructionsFile, want)
+	}
+	if want := filepath.Join(home, "AGENTS.override.md"); paths.InstructionsOverrideFile != want {
+		t.Fatalf("InstructionsOverrideFile = %q, want %q", paths.InstructionsOverrideFile, want)
+	}
 }

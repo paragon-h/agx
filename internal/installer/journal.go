@@ -24,6 +24,7 @@ type Journal struct {
 
 type TargetChange struct {
 	Agent         string `json:"agent"`
+	Kind          string `json:"kind,omitempty"`
 	Action        string `json:"action"`
 	TargetPath    string `json:"targetPath"`
 	StagePath     string `json:"stagePath,omitempty"`
@@ -56,6 +57,9 @@ func (j Journal) Validate() error {
 		}
 		if target.Action != "add" && target.Action != "update" && target.Action != "remove" {
 			return fmt.Errorf("target %d has invalid action %q", i, target.Action)
+		}
+		if target.Kind != "" && target.Kind != "directory" && target.Kind != "file" {
+			return fmt.Errorf("target %d has invalid kind %q", i, target.Kind)
 		}
 		if target.Action == "update" && (target.StagePath == "" || target.BackupPath == "") {
 			return fmt.Errorf("target %d update requires stage and backup paths", i)

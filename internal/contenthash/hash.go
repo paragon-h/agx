@@ -13,6 +13,13 @@ import (
 )
 
 func File(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("%s is not a regular file", path)
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -24,6 +31,25 @@ func File(path string) (string, error) {
 		return "", err
 	}
 	return format(hash.Sum(nil)), nil
+}
+
+func Bytes(content []byte) string {
+	hash := sha256.Sum256(content)
+	return format(hash[:])
+}
+
+// Path hashes a managed regular file or directory. An empty kind is treated as
+// a directory so generations written before file targets were introduced stay
+// readable.
+func Path(path, kind string) (string, error) {
+	switch kind {
+	case "", "directory":
+		return Directory(path)
+	case "file":
+		return File(path)
+	default:
+		return "", fmt.Errorf("unsupported content kind %q", kind)
+	}
 }
 
 // Directory hashes portable relative paths, executable bits, and file content.

@@ -21,12 +21,13 @@ var (
 )
 
 type Catalog struct {
-	APIVersion string             `json:"apiVersion" yaml:"apiVersion"`
-	Kind       string             `json:"kind" yaml:"kind"`
-	Metadata   Metadata           `json:"metadata" yaml:"metadata"`
-	Defaults   Defaults           `json:"defaults,omitempty" yaml:"defaults,omitempty"`
-	Skills     map[string]Skill   `json:"skills" yaml:"skills"`
-	Profiles   map[string]Profile `json:"profiles,omitempty" yaml:"profiles,omitempty"`
+	APIVersion   string                 `json:"apiVersion" yaml:"apiVersion"`
+	Kind         string                 `json:"kind" yaml:"kind"`
+	Metadata     Metadata               `json:"metadata" yaml:"metadata"`
+	Defaults     Defaults               `json:"defaults,omitempty" yaml:"defaults,omitempty"`
+	Skills       map[string]Skill       `json:"skills" yaml:"skills"`
+	Instructions map[string]Instruction `json:"instructions,omitempty" yaml:"instructions,omitempty"`
+	Profiles     map[string]Profile     `json:"profiles,omitempty" yaml:"profiles,omitempty"`
 }
 
 type Metadata struct {
@@ -53,6 +54,11 @@ type Source struct {
 
 type TargetConfig struct {
 	Enabled *bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+}
+
+type Instruction struct {
+	Sources []string                `json:"sources" yaml:"sources"`
+	Targets map[string]TargetConfig `json:"targets" yaml:"targets"`
 }
 
 type Profile struct {
@@ -95,6 +101,14 @@ func (c Catalog) Validate() error {
 			return fmt.Errorf("skill %q: %w", name, err)
 		}
 	}
+	for name, instruction := range c.Instructions {
+		if !ValidName(name) || strings.Contains(name, "/") {
+			return fmt.Errorf("instructions %q has an invalid short name", name)
+		}
+		if err := instruction.Validate(); err != nil {
+			return fmt.Errorf("instructions %q: %w", name, err)
+		}
+	}
 	for name, profile := range c.Profiles {
 		if !ValidName(name) || strings.Contains(name, "/") {
 			return fmt.Errorf("profile %q has an invalid short name", name)
@@ -102,6 +116,38 @@ func (c Catalog) Validate() error {
 		if err := profile.Validate(c.Metadata.Name, c.Skills); err != nil {
 			return fmt.Errorf("profile %q: %w", name, err)
 		}
+	}
+	return nil
+}
+
+func (i Instruction) Validate() error {
+	if len(i.Sources) == 0 {
+		return errors.New("sources must contain at least one Markdown file")
+	}
+	seen := make(map[string]struct{}, len(i.Sources))
+	for _, source := range i.Sources {
+		if !ValidLocalPath(source) {
+			return fmt.Errorf("source path %q must be catalog-relative, absolute, or use ~/ for the user home", source)
+		}
+		if _, exists := seen[source]; exists {
+			return fmt.Errorf("source path %q is duplicated", source)
+		}
+		seen[source] = struct{}{}
+	}
+	if len(i.Targets) == 0 {
+		return errors.New("targets must contain at least one agent")
+	}
+	hasEnabledTarget := false
+	for target, config := range i.Targets {
+		if target != "codex" {
+			return fmt.Errorf("global Instructions currently support only target %q", "codex")
+		}
+		if config.Enabled == nil || *config.Enabled {
+			hasEnabledTarget = true
+		}
+	}
+	if !hasEnabledTarget {
+		return errors.New("targets must enable at least one agent")
 	}
 	return nil
 }

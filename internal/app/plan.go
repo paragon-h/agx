@@ -11,9 +11,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/paragon-h/agx/internal/adapters"
 	"github.com/paragon-h/agx/internal/catalog"
 	"github.com/paragon-h/agx/internal/contenthash"
+	"github.com/paragon-h/agx/internal/instructions"
 	"github.com/paragon-h/agx/internal/lockfile"
 	"github.com/paragon-h/agx/internal/overlay"
 	"github.com/paragon-h/agx/internal/state"
@@ -41,10 +44,13 @@ type planChange struct {
 	Target        string `json:"target"`
 	Skill         string `json:"skill"`
 	Path          string `json:"path"`
+	Kind          string `json:"kind,omitempty"`
 	Action        string `json:"action"`
 	DesiredDigest string `json:"desiredDigest,omitempty"`
+	ManagedDigest string `json:"managedDigest,omitempty"`
 	CurrentDigest string `json:"currentDigest,omitempty"`
 	Reason        string `json:"reason,omitempty"`
+	content       []byte
 }
 
 type planSummary struct {
@@ -68,7 +74,7 @@ func (r *Runner) plan(ctx context.Context, args []string) int {
 	lockPath := flags.String("lockfile", "", "lockfile path (defaults beside the catalog)")
 	profileName := flags.String("profile", "", "select Skills and targets from a named profile")
 	adopt := flags.Bool("adopt", false, "allow adoption of unmanaged targets with identical content")
-	allowEmpty := flags.Bool("allow-empty", false, "allow an empty desired selection to remove managed Skills")
+	allowEmpty := flags.Bool("allow-empty", false, "allow an empty desired selection to remove managed resources")
 	jsonOutput := flags.Bool("json", false, "emit JSON")
 	if err := flags.Parse(args); err != nil {
 		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", err)
@@ -122,18 +128,20 @@ func (r *Runner) plan(ctx context.Context, args []string) int {
 }
 
 func requireEmptySelectionConfirmation(desired desiredState, current *state.Generation, allowEmpty bool) error {
-	if len(desired.Skills) != 0 || current == nil || len(current.Entries) == 0 || allowEmpty {
+	if len(desired.Skills)+len(desired.Instructions) != 0 || current == nil || len(current.Entries) == 0 || allowEmpty {
 		return nil
 	}
 	if desired.Profile != "" {
-		return fmt.Errorf("profile %q selects no installable skills and would remove %d managed installation(s); rerun with --allow-empty to confirm", desired.Profile, len(current.Entries))
+		return fmt.Errorf("profile %q selects no installable resources and would remove %d managed installation(s); rerun with --allow-empty to confirm", desired.Profile, len(current.Entries))
 	}
-	return fmt.Errorf("selected Catalogs contain no skills and would remove %d managed installation(s); rerun with --allow-empty to confirm", len(current.Entries))
+	return fmt.Errorf("selected Catalogs contain no installable resources and would remove %d managed installation(s); rerun with --allow-empty to confirm", len(current.Entries))
 }
 
 func buildPlan(ctx context.Context, desired desiredState, adopt bool, managed map[string]state.Entry) (planReport, int, error) {
 	report := newPlanReport(desired)
 	targetPaths := make(map[string]string)
+	resolvedPaths := make(map[string]adapters.Paths)
+	skillTargets := desired.skillTargetNames()
 	for _, targetName := range desired.targetNames() {
 		adapter, ok := adapterFor(targetName)
 		if !ok {
@@ -150,7 +158,10 @@ func buildPlan(ctx context.Context, desired desiredState, adopt bool, managed ma
 		if err != nil {
 			return planReport{}, ExitAgentUnavailable, err
 		}
-		targetPaths[targetName] = paths.SkillsDir
+		if _, needsSkills := skillTargets[targetName]; needsSkills {
+			targetPaths[targetName] = paths.SkillsDir
+		}
+		resolvedPaths[targetName] = paths
 	}
 	for _, entry := range managed {
 		adapter, ok := adapterFor(entry.Target)
@@ -160,6 +171,13 @@ func buildPlan(ctx context.Context, desired desiredState, adopt bool, managed ma
 		paths, err := adapter.ResolvePaths(ctx)
 		if err != nil {
 			return planReport{}, ExitTargetConflict, err
+		}
+		resolvedPaths[entry.Target] = paths
+		if entry.Kind == "file" {
+			if entry.Skill != "instructions" || paths.InstructionsFile == "" || filepath.Clean(entry.Path) != filepath.Clean(paths.InstructionsFile) || entry.ManagedDigest == "" {
+				return planReport{}, ExitTargetConflict, fmt.Errorf("managed Instructions path is invalid for %q: %s", entry.Target, entry.Path)
+			}
+			continue
 		}
 		root := filepath.Clean(paths.SkillsDir)
 		if activeRoot, ok := targetPaths[entry.Target]; ok && filepath.Clean(activeRoot) != root {
@@ -216,6 +234,24 @@ func buildPlan(ctx context.Context, desired desiredState, adopt bool, managed ma
 			}
 		}
 	}
+	for _, desiredInstruction := range desired.Instructions {
+		paths := resolvedPaths[desiredInstruction.Target]
+		if paths.InstructionsFile == "" {
+			return planReport{}, ExitAgentUnavailable, fmt.Errorf("target %q does not support global Instructions", desiredInstruction.Target)
+		}
+		if err := rejectActiveInstructionsOverride(paths.InstructionsOverrideFile); err != nil {
+			return planReport{}, ExitTargetConflict, err
+		}
+		targetPath := filepath.Clean(paths.InstructionsFile)
+		if existing, exists := desiredOwners[targetPath]; exists {
+			return planReport{}, ExitTargetConflict, fmt.Errorf("resources %s and instructions resolve to the same %s target path %s", existing, desiredInstruction.Target, targetPath)
+		}
+		desiredOwners[targetPath] = "instructions"
+		managedEntry, isManaged := managed[targetPath]
+		change := inspectInstructionTarget(desiredInstruction.Target, targetPath, desiredInstruction, adopt, isManaged, managedEntry)
+		report.Changes = append(report.Changes, change)
+		addPlanSummary(&report.Summary, change.Action)
+	}
 	desiredPaths := make(map[string]struct{}, len(report.Changes))
 	for _, change := range report.Changes {
 		desiredPaths[filepath.Clean(change.Path)] = struct{}{}
@@ -224,7 +260,13 @@ func buildPlan(ctx context.Context, desired desiredState, adopt bool, managed ma
 		if _, desired := desiredPaths[path]; desired {
 			continue
 		}
-		change := planChange{Target: entry.Target, Skill: entry.Skill, Path: path, Action: "remove", Reason: "managed target is no longer declared"}
+		if entry.Kind == "file" && entry.ManagedDigest != "" {
+			change := inspectInstructionRemoval(entry)
+			report.Changes = append(report.Changes, change)
+			addPlanSummary(&report.Summary, change.Action)
+			continue
+		}
+		change := planChange{Target: entry.Target, Skill: entry.Skill, Path: path, Kind: entry.Kind, Action: "remove", Reason: "managed target is no longer declared"}
 		info, err := os.Lstat(path)
 		if os.IsNotExist(err) {
 			change.Reason = "managed target is already absent"
@@ -259,6 +301,158 @@ func buildPlan(ctx context.Context, desired desiredState, adopt bool, managed ma
 		return report.Changes[i].Skill < report.Changes[j].Skill
 	})
 	return report, ExitSuccess, nil
+}
+
+func addPlanSummary(summary *planSummary, action string) {
+	switch action {
+	case "add":
+		summary.Add++
+	case "adopt":
+		summary.Adopt++
+	case "update":
+		summary.Update++
+	case "unchanged":
+		summary.Unchanged++
+	case "remove", "release":
+		summary.Remove++
+	case "conflict":
+		summary.Conflict++
+	}
+}
+
+func inspectInstructionTarget(target, path string, desired desiredInstruction, adopt, managed bool, managedEntry state.Entry) planChange {
+	change := planChange{Target: target, Skill: "instructions", Path: path, Kind: "file", ManagedDigest: desired.ManagedDigest}
+	existing, exists, err := readRegularFile(path)
+	if err != nil {
+		change.Action = "conflict"
+		change.Reason = err.Error()
+		return change
+	}
+	rendered, err := instructions.Render(existing, desired.Content)
+	if err != nil {
+		change.Action = "conflict"
+		change.Reason = err.Error()
+		return change
+	}
+	change.content = rendered
+	change.DesiredDigest = contenthash.Bytes(rendered)
+	if !exists {
+		change.Action = "add"
+		return change
+	}
+	change.CurrentDigest = contenthash.Bytes(existing)
+	managedDigest, found, err := instructions.DigestManaged(existing)
+	if err != nil {
+		change.Action = "conflict"
+		change.Reason = err.Error()
+		return change
+	}
+	if managed {
+		if managedEntry.Kind != "file" || managedEntry.Target != target || managedEntry.Skill != "instructions" || managedEntry.ManagedDigest == "" {
+			change.Action = "conflict"
+			change.Reason = "generation ownership does not match the requested Instructions target"
+			return change
+		}
+		if !found || managedDigest != managedEntry.ManagedDigest {
+			change.Action = "conflict"
+			change.Reason = "managed Instructions were modified outside AGX"
+			return change
+		}
+		if managedDigest == desired.ManagedDigest {
+			change.Action = "unchanged"
+			change.DesiredDigest = change.CurrentDigest
+			change.content = existing
+			return change
+		}
+		change.Action = "update"
+		return change
+	}
+	if found {
+		if managedDigest != desired.ManagedDigest {
+			change.Action = "conflict"
+			change.Reason = "unmanaged AGX Instructions block differs"
+			return change
+		}
+		if !adopt {
+			change.Action = "conflict"
+			change.Reason = "unmanaged AGX Instructions block matches; rerun with --adopt to take ownership"
+			return change
+		}
+		change.Action = "adopt"
+		change.DesiredDigest = change.CurrentDigest
+		change.content = existing
+		return change
+	}
+	change.Action = "update"
+	change.Reason = "add the AGX managed Instructions block while preserving existing content"
+	return change
+}
+
+func inspectInstructionRemoval(entry state.Entry) planChange {
+	change := planChange{Target: entry.Target, Skill: entry.Skill, Path: entry.Path, Kind: "file", Action: "remove", Reason: "managed Instructions are no longer declared"}
+	existing, exists, err := readRegularFile(entry.Path)
+	if err != nil {
+		change.Action = "conflict"
+		change.Reason = err.Error()
+		return change
+	}
+	if !exists {
+		change.Reason = "managed Instructions file is already absent"
+		return change
+	}
+	change.CurrentDigest = contenthash.Bytes(existing)
+	managedDigest, found, err := instructions.DigestManaged(existing)
+	if err != nil || !found || managedDigest != entry.ManagedDigest {
+		change.Action = "conflict"
+		if err != nil {
+			change.Reason = err.Error()
+		} else {
+			change.Reason = "managed Instructions were modified outside AGX"
+		}
+		return change
+	}
+	remaining, _, err := instructions.Remove(existing)
+	if err != nil {
+		change.Action = "conflict"
+		change.Reason = err.Error()
+		return change
+	}
+	if len(remaining) != 0 {
+		change.Action = "release"
+		change.content = remaining
+		change.DesiredDigest = contenthash.Bytes(remaining)
+		change.Reason = "remove only the AGX managed Instructions block"
+	}
+	return change
+}
+
+func readRegularFile(path string) ([]byte, bool, error) {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, true, fmt.Errorf("%s is not a regular file", path)
+	}
+	content, err := os.ReadFile(path)
+	return content, true, err
+}
+
+func rejectActiveInstructionsOverride(path string) error {
+	if path == "" {
+		return nil
+	}
+	content, exists, err := readRegularFile(path)
+	if err != nil {
+		return fmt.Errorf("codex Instructions override is invalid: %w", err)
+	}
+	if exists && len(content) != 0 {
+		return fmt.Errorf("non-empty %s takes precedence over AGENTS.md; remove it or make it empty before applying managed Instructions", path)
+	}
+	return nil
 }
 
 func newPlanReport(desired desiredState) planReport {
@@ -314,6 +508,9 @@ func verifyPlanSources(ctx context.Context, document catalog.Document, locked lo
 	}
 	if len(document.Catalog.Skills) != len(locked.Skills) {
 		return ExitLockOutdated, errors.New("catalog and lockfile contain different skill sets")
+	}
+	if len(document.Catalog.Instructions) != len(locked.Instructions) {
+		return ExitLockOutdated, errors.New("catalog and lockfile contain different Instructions sets")
 	}
 	for _, name := range sortedSkillNames(document.Catalog) {
 		skill := document.Catalog.Skills[name]
@@ -393,7 +590,45 @@ func verifyPlanSources(ctx context.Context, document catalog.Document, locked lo
 			return ExitLockOutdated, fmt.Errorf("overlay for %q changed", name)
 		}
 	}
+	for name, declaration := range document.Catalog.Instructions {
+		lockedInstruction, ok := locked.Instructions[name]
+		if !ok {
+			return ExitLockOutdated, fmt.Errorf("instructions %q is missing from lockfile", name)
+		}
+		if !instructionDeclarationMatchesLock(declaration, lockedInstruction) {
+			return ExitLockOutdated, fmt.Errorf("instructions %q sources differ from lockfile", name)
+		}
+		available, err := instructionSourcesAvailable(document, declaration)
+		if err != nil {
+			return ExitSourceFailure, fmt.Errorf("instructions %q: %w", name, err)
+		}
+		if !available {
+			continue
+		}
+		current, err := lockInstruction(document, declaration, time.Time{})
+		if err != nil {
+			return ExitSourceFailure, fmt.Errorf("instructions %q: %w", name, err)
+		}
+		if !sameLockedInstructionContent(current, lockedInstruction) {
+			return ExitLockOutdated, fmt.Errorf("instructions %q changed", name)
+		}
+	}
 	return ExitSuccess, nil
+}
+
+func instructionSourcesAvailable(document catalog.Document, declaration catalog.Instruction) (bool, error) {
+	for _, source := range declaration.Sources {
+		path, err := document.Resolve(source)
+		if err != nil {
+			return false, err
+		}
+		if _, err := os.Lstat(path); os.IsNotExist(err) {
+			return false, nil
+		} else if err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 func sortedSkillNames(value catalog.Catalog) []string {
