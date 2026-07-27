@@ -18,6 +18,7 @@ func TestSaveAndLoadCurrent(t *testing.T) {
 		CreatedAt:      "2026-07-23T10:00:00Z",
 		CatalogDigest:  testDigest,
 		LockfileDigest: testDigest,
+		Catalogs:       []string{"personal", "work"},
 		Profile:        "work",
 		Entries: []Entry{{
 			Target:        "codex",
@@ -33,7 +34,7 @@ func TestSaveAndLoadCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded == nil || loaded.ID != generation.ID || loaded.Profile != "work" || len(loaded.Entries) != 1 {
+	if loaded == nil || loaded.ID != generation.ID || loaded.Profile != "work" || len(loaded.Catalogs) != 2 || len(loaded.Entries) != 1 {
 		t.Fatalf("Current() = %#v, want %#v", loaded, generation)
 	}
 	if _, err := os.Stat(filepath.Join(root, "generations", "generation-1.json")); err != nil {

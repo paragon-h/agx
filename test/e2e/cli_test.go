@@ -17,12 +17,90 @@ type applyResult struct {
 }
 
 type statusReport struct {
-	State      string `json:"state"`
-	Generation string `json:"generation"`
-	Profile    string `json:"profile"`
+	State      string   `json:"state"`
+	Generation string   `json:"generation"`
+	Profile    string   `json:"profile"`
+	Catalogs   []string `json:"catalogs"`
 	Summary    struct {
 		Healthy int `json:"healthy"`
 	} `json:"summary"`
+}
+
+func TestCLIEndToEndComposedCatalogs(t *testing.T) {
+	repository := repositoryRoot(t)
+	workspace := t.TempDir()
+	binary := filepath.Join(workspace, executableName("agx"))
+	runBuild(t, repository, binary)
+
+	binDir := filepath.Join(workspace, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	copyExecutable(t, binary, filepath.Join(binDir, executableName("codex")))
+	personalRoot := filepath.Join(workspace, "personal")
+	workRoot := filepath.Join(workspace, "work")
+	personalPath := filepath.Join(personalRoot, "agx.yaml")
+	workPath := filepath.Join(workRoot, "agx.yaml")
+	writeFile(t, filepath.Join(personalRoot, "skills", "review", "SKILL.md"), "# Review\n")
+	writeFile(t, filepath.Join(workRoot, "skills", "deploy", "SKILL.md"), "# Deploy\n")
+	writeFile(t, personalPath, `apiVersion: agx.dev/v1alpha1
+kind: Catalog
+metadata:
+  name: personal
+skills:
+  review:
+    source:
+      type: local
+      path: skills/review
+    targets:
+      codex: {}
+profiles:
+  combined:
+    skills:
+      include:
+        - review
+        - work/deploy
+`)
+	writeFile(t, workPath, `apiVersion: agx.dev/v1alpha1
+kind: Catalog
+metadata:
+  name: work
+skills:
+  deploy:
+    source:
+      type: local
+      path: skills/deploy
+    targets:
+      codex: {}
+`)
+	agentHome := filepath.Join(workspace, "codex-home")
+	environment := overriddenEnvironment(map[string]string{
+		"AGX_CONFIG_HOME": filepath.Join(workspace, "config"),
+		"AGX_STATE_HOME":  filepath.Join(workspace, "state"),
+		"AGX_STORE_HOME":  filepath.Join(workspace, "store"),
+		"CODEX_HOME":      agentHome,
+		"PATH":            binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+	})
+
+	runAGX(t, binary, workspace, environment, "catalog", "add", "personal", "--path", personalPath)
+	runAGX(t, binary, workspace, environment, "catalog", "add", "work", "--path", workPath)
+	runAGX(t, binary, workspace, environment, "lock", "--catalog", personalPath)
+	runAGX(t, binary, workspace, environment, "lock", "--catalog", workPath)
+	listed := runAGX(t, binary, workspace, environment, "list", "--catalogs", "work,personal", "--profile", "personal/combined")
+	if listed != "personal/review\tlocal\tcodex\nwork/deploy\tlocal\tcodex\n" {
+		t.Fatalf("composed list = %q", listed)
+	}
+	runAGX(t, binary, workspace, environment, "apply", "--catalogs", "personal,work", "--profile", "combined")
+	for _, name := range []string{"review", "deploy"} {
+		if _, err := os.Stat(filepath.Join(agentHome, "skills", name, "SKILL.md")); err != nil {
+			t.Fatalf("installed %s: %v", name, err)
+		}
+	}
+	var status statusReport
+	decodeJSON(t, runAGX(t, binary, workspace, environment, "status", "--json"), &status)
+	if status.State != "healthy" || status.Profile != "personal/combined" || strings.Join(status.Catalogs, ",") != "personal,work" {
+		t.Fatalf("composed status = %#v", status)
+	}
 }
 
 func TestCLIEndToEndProfiles(t *testing.T) {

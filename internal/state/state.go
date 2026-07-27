@@ -18,13 +18,14 @@ import (
 )
 
 type Generation struct {
-	ID             string  `json:"id"`
-	CreatedAt      string  `json:"createdAt"`
-	CatalogDigest  string  `json:"catalogDigest"`
-	LockfileDigest string  `json:"lockfileDigest"`
-	Profile        string  `json:"profile,omitempty"`
-	PreviousID     string  `json:"previousId,omitempty"`
-	Entries        []Entry `json:"entries"`
+	ID             string   `json:"id"`
+	CreatedAt      string   `json:"createdAt"`
+	CatalogDigest  string   `json:"catalogDigest"`
+	LockfileDigest string   `json:"lockfileDigest"`
+	Catalogs       []string `json:"catalogs,omitempty"`
+	Profile        string   `json:"profile,omitempty"`
+	PreviousID     string   `json:"previousId,omitempty"`
+	Entries        []Entry  `json:"entries"`
 }
 
 type Entry struct {
@@ -286,8 +287,20 @@ func (g Generation) Validate() error {
 	if !validDigest(g.CatalogDigest) || !validDigest(g.LockfileDigest) {
 		return errors.New("generation digests must be sha256 digests")
 	}
-	if g.Profile != "" && (!catalog.ValidName(g.Profile) || strings.Contains(g.Profile, "/")) {
-		return errors.New("generation profile is invalid")
+	if g.Profile != "" {
+		if _, _, _, err := catalog.ParseQualifiedName(g.Profile); err != nil {
+			return errors.New("generation profile is invalid")
+		}
+	}
+	seenCatalogs := make(map[string]struct{}, len(g.Catalogs))
+	for _, name := range g.Catalogs {
+		if !catalog.ValidName(name) {
+			return errors.New("generation catalog name is invalid")
+		}
+		if _, exists := seenCatalogs[name]; exists {
+			return errors.New("generation catalogs contain a duplicate")
+		}
+		seenCatalogs[name] = struct{}{}
 	}
 	seenPaths := make(map[string]struct{}, len(g.Entries))
 	seenArtifacts := make(map[string]struct{}, len(g.Entries))

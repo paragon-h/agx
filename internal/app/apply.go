@@ -38,12 +38,13 @@ type deployment struct {
 
 func (r *Runner) apply(ctx context.Context, args []string) int {
 	if helpRequested(args) {
-		fmt.Fprintln(r.stdout, "Usage: agx apply [--catalog PATH] [--lockfile PATH] [--profile NAME] [--adopt] [--allow-empty] [--json]")
+		fmt.Fprintln(r.stdout, "Usage: agx apply [--catalog PATH | --catalogs NAME,...] [--lockfile PATH] [--profile NAME] [--adopt] [--allow-empty] [--json]")
 		return ExitSuccess
 	}
 	flags := flag.NewFlagSet("apply", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	catalogPath := flags.String("catalog", "", "catalog path (defaults to ./agx.yaml or the active Catalog)")
+	catalogNames := flags.String("catalogs", "", "comma-separated registered Catalog names to compose")
 	lockPath := flags.String("lockfile", "", "lockfile path (defaults beside the catalog)")
 	profileName := flags.String("profile", "", "select Skills and targets from a named profile")
 	adopt := flags.Bool("adopt", false, "adopt unmanaged targets with identical content")
@@ -54,6 +55,12 @@ func (r *Runner) apply(ctx context.Context, args []string) int {
 	}
 	if flags.NArg() != 0 {
 		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " ")))
+	}
+	if *catalogPath != "" && *catalogNames != "" {
+		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", fmt.Errorf("--catalog and --catalogs cannot be used together"))
+	}
+	if *catalogNames != "" && *lockPath != "" {
+		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", fmt.Errorf("--lockfile cannot be used with --catalogs"))
 	}
 	release, err := state.AcquireApplyLock()
 	if err != nil {
@@ -72,29 +79,15 @@ func (r *Runner) apply(ctx context.Context, args []string) int {
 		return r.commandError(ExitFailure, "AGX_REPAIR_REQUIRED", fmt.Errorf("unfinished transaction %s is in state %s", journal.ID, journal.State))
 	}
 
-	resolvedCatalogPath, err := resolveCatalogPath(*catalogPath)
-	if err != nil {
-		return r.commandError(ExitInvalidConfig, "AGX_CATALOG_NOT_FOUND", err)
-	}
-	document, err := catalog.Load(resolvedCatalogPath)
+	collection, err := loadCatalogCollection(*catalogPath, *catalogNames)
 	if err != nil {
 		return r.commandError(ExitInvalidConfig, "AGX_CATALOG_INVALID", err)
 	}
-	if *lockPath == "" {
-		*lockPath = filepath.Join(document.Root, "agx.lock")
-	}
-	locked, err := lockfile.Load(*lockPath)
+	desired, code, err := loadDesiredState(ctx, collection, *profileName, *lockPath)
 	if err != nil {
-		return r.commandError(ExitLockOutdated, "AGX_LOCK_INVALID", err)
+		return r.commandError(code, desiredStateErrorCode(code, err), err)
 	}
-	if code, err := verifyPlanSources(ctx, document, locked); err != nil {
-		return r.commandError(code, planErrorCode(code), err)
-	}
-	selected, err := selectProfile(document, *profileName)
-	if err != nil {
-		return r.commandError(ExitInvalidConfig, "AGX_PROFILE_INVALID", err)
-	}
-	if err := requireApprovals(selected, locked); err != nil {
+	if err := requireApprovals(desired); err != nil {
 		return r.commandError(ExitPolicyDenied, "AGX_APPROVAL_REQUIRED", err)
 	}
 	current, err := state.Current()
@@ -105,10 +98,10 @@ func (r *Runner) apply(ctx context.Context, args []string) int {
 	if current != nil {
 		managed = current.ManagedByPath()
 	}
-	if err := requireEmptySelectionConfirmation(selected, *profileName, current, *allowEmpty); err != nil {
+	if err := requireEmptySelectionConfirmation(desired, current, *allowEmpty); err != nil {
 		return r.commandError(ExitPolicyDenied, "AGX_EMPTY_CATALOG", err)
 	}
-	report, code, err := buildPlan(ctx, selected, locked, *lockPath, *profileName, *adopt, managed)
+	report, code, err := buildPlan(ctx, desired, *adopt, managed)
 	if err != nil {
 		return r.commandError(code, planErrorCode(code), err)
 	}
@@ -128,7 +121,7 @@ func (r *Runner) apply(ctx context.Context, args []string) int {
 		return r.renderApplyResult(result, *jsonOutput)
 	}
 
-	deployments, err := stageDeployments(ctx, selected, locked, report)
+	deployments, err := stageDeployments(ctx, desired, report)
 	if err != nil {
 		cleanupDeployments(deployments)
 		return r.commandError(ExitFailure, "AGX_STAGE_FAILED", err)
@@ -166,7 +159,7 @@ func (r *Runner) apply(ctx context.Context, args []string) int {
 		return r.commandError(ExitFailure, "AGX_APPLY_FAILED", err)
 	}
 
-	generation, err := createGeneration(*lockPath, locked, *profileName, report, current)
+	generation, err := createGeneration(desired, report, current)
 	if err == nil {
 		err = state.SaveArtifacts(generation)
 	}
@@ -198,24 +191,23 @@ func (r *Runner) apply(ctx context.Context, args []string) int {
 	return r.renderApplyResult(applyResult{Generation: generation.ID, Changed: true, Summary: report.Summary}, *jsonOutput)
 }
 
-func requireApprovals(document catalog.Document, locked lockfile.Lockfile) error {
-	for name, skill := range document.Catalog.Skills {
-		if skill.Source.Type != "git" || len(enabledTargets(skill.Targets)) == 0 {
+func requireApprovals(desired desiredState) error {
+	for _, skill := range desired.Skills {
+		if skill.Skill.Source.Type != "git" || len(enabledTargets(skill.Skill.Targets)) == 0 {
 			continue
 		}
-		qualified := catalog.QualifiedName(document.Catalog.Metadata.Name, name)
-		approved, err := security.IsApproved(qualified, security.KeyFor(locked.Skills[name]))
+		approved, err := security.IsApproved(skill.QualifiedName, security.KeyFor(skill.LockedSkill))
 		if err != nil {
-			return fmt.Errorf("load approval for %s: %w", qualified, err)
+			return fmt.Errorf("load approval for %s: %w", skill.QualifiedName, err)
 		}
 		if !approved {
-			return fmt.Errorf("%s is not approved for locked commit %s and content %s; run agx audit %s, then agx approve %s", qualified, locked.Skills[name].Source.ResolvedCommit, locked.Skills[name].ContentDigest, name, name)
+			return fmt.Errorf("%s is not approved for locked commit %s and content %s; run agx audit %s --catalog %s, then agx approve %s --catalog %s", skill.QualifiedName, skill.LockedSkill.Source.ResolvedCommit, skill.LockedSkill.ContentDigest, skill.Name, skill.Document.Path, skill.Name, skill.Document.Path)
 		}
 	}
 	return nil
 }
 
-func stageDeployments(ctx context.Context, document catalog.Document, locked lockfile.Lockfile, report planReport) ([]deployment, error) {
+func stageDeployments(ctx context.Context, desired desiredState, report planReport) ([]deployment, error) {
 	deployments := make([]deployment, 0, len(report.Changes))
 	for _, change := range report.Changes {
 		item := deployment{change: change}
@@ -234,13 +226,11 @@ func stageDeployments(ctx context.Context, document catalog.Document, locked loc
 		deployments[len(deployments)-1].stageRoot = stageRoot
 		stagePath := filepath.Join(stageRoot, "content")
 		deployments[len(deployments)-1].stagePath = stagePath
-		shortName, err := shortSkillName(document.Catalog.Metadata.Name, change.Skill)
-		if err != nil {
-			return deployments, err
+		skill, exists := desired.skillByQualifiedName(change.Skill)
+		if !exists {
+			return deployments, fmt.Errorf("planned skill %s is not in the desired state", change.Skill)
 		}
-		skill := document.Catalog.Skills[shortName]
-		lockedSkill := locked.Skills[shortName]
-		if err := materializeSkill(ctx, document, skill, lockedSkill, stagePath); err != nil {
+		if err := materializeSkill(ctx, skill.Document, skill.Skill, skill.LockedSkill, stagePath); err != nil {
 			return deployments, fmt.Errorf("stage %s: %w", change.Skill, err)
 		}
 		digest, err := contenthash.Directory(stagePath)
@@ -439,18 +429,19 @@ func rollbackDeploymentsWithProgress(deployments []deployment, restored func(str
 	return nil
 }
 
-func createGeneration(lockPath string, locked lockfile.Lockfile, profileName string, report planReport, previous *state.Generation) (state.Generation, error) {
+func createGeneration(desired desiredState, report planReport, previous *state.Generation) (state.Generation, error) {
 	now := time.Now().UTC()
-	lockDigest, err := contenthash.File(lockPath)
+	lockDigest, err := desired.lockfileDigest()
 	if err != nil {
 		return state.Generation{}, err
 	}
 	generation := state.Generation{
 		ID:             now.Format("20060102T150405.000000000Z"),
 		CreatedAt:      now.Format(time.RFC3339Nano),
-		CatalogDigest:  locked.CatalogDigest,
+		CatalogDigest:  desired.catalogDigest(),
 		LockfileDigest: lockDigest,
-		Profile:        profileName,
+		Catalogs:       desired.catalogNames(),
+		Profile:        desired.Profile,
 	}
 	if previous != nil {
 		generation.PreviousID = previous.ID
@@ -469,18 +460,6 @@ func createGeneration(lockPath string, locked lockfile.Lockfile, profileName str
 	state.SortEntries(generation.Entries)
 	state.AssignArtifacts(generation.Entries)
 	return generation, nil
-}
-
-func shortSkillName(catalogName, qualified string) (string, error) {
-	prefix := catalogName + "/"
-	if !strings.HasPrefix(qualified, prefix) {
-		return "", fmt.Errorf("skill %q does not belong to catalog %q", qualified, catalogName)
-	}
-	name := strings.TrimPrefix(qualified, prefix)
-	if !catalog.ValidName(name) {
-		return "", fmt.Errorf("invalid skill name %q", name)
-	}
-	return name, nil
 }
 
 func cleanupDeployments(deployments []deployment) {

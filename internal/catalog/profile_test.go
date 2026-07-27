@@ -96,6 +96,29 @@ func TestCatalogSelectProfileRejectsUnknownProfile(t *testing.T) {
 	}
 }
 
+func TestCatalogValidationAllowsExternalQualifiedProfileReference(t *testing.T) {
+	value := profileTestCatalog()
+	value.Profiles = map[string]Profile{
+		"shared": {Skills: ProfileSkills{Include: []string{"work/deploy"}}},
+	}
+	if err := value.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if _, err := value.SelectProfile("shared"); err == nil || !strings.Contains(err.Error(), "unavailable skill") {
+		t.Fatalf("SelectProfile() error = %v, want unavailable external skill", err)
+	}
+}
+
+func TestCatalogValidationNormalizesLocalQualifiedProfileReferences(t *testing.T) {
+	value := profileTestCatalog()
+	value.Profiles = map[string]Profile{
+		"duplicate": {Skills: ProfileSkills{Include: []string{"review", "personal/review"}}},
+	}
+	if err := value.Validate(); err == nil || !strings.Contains(err.Error(), "duplicated") {
+		t.Fatalf("Validate() error = %v, want normalized duplicate", err)
+	}
+}
+
 func profileTestCatalog() Catalog {
 	return Catalog{
 		APIVersion: APIVersion,

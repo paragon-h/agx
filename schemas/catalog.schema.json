@@ -40,6 +40,10 @@
       "type": "string",
       "pattern": "^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$"
     },
+    "resourceRef": {
+      "type": "string",
+      "pattern": "^(?:[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?/)?[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$"
+    },
     "skill": {
       "type": "object",
       "additionalProperties": false,
@@ -87,12 +91,12 @@
             "include": {
               "type": "array",
               "uniqueItems": true,
-              "items": { "$ref": "#/$defs/name" }
+              "items": { "$ref": "#/$defs/resourceRef" }
             },
             "exclude": {
               "type": "array",
               "uniqueItems": true,
-              "items": { "$ref": "#/$defs/name" }
+              "items": { "$ref": "#/$defs/resourceRef" }
             }
           }
         },

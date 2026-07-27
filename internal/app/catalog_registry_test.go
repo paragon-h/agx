@@ -181,6 +181,37 @@ func TestResolveCatalogPathPrecedenceAndUnavailableActive(t *testing.T) {
 	}
 }
 
+func TestRunnerListComposesRegisteredCatalogs(t *testing.T) {
+	t.Setenv("AGX_CONFIG_HOME", t.TempDir())
+	personalPath := writeCatalogRegistryFixture(t, "personal", "review")
+	workPath := writeCatalogRegistryFixture(t, "work", "deploy")
+	value := registry.New()
+	value.Active = "personal"
+	value.Catalogs["personal"] = registry.Entry{Path: personalPath}
+	value.Catalogs["work"] = registry.Entry{Path: workPath}
+	if err := registry.Save(value); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	runner := New(&stdout, &stderr, "dev")
+	if code := runner.Run(context.Background(), []string{"list", "--catalogs", "work,personal"}); code != ExitSuccess {
+		t.Fatalf("list code = %d, stderr = %q", code, stderr.String())
+	}
+	want := "personal/review\tlocal\tcodex\nwork/deploy\tlocal\tcodex\n"
+	if stdout.String() != want {
+		t.Fatalf("list = %q, want %q", stdout.String(), want)
+	}
+}
+
+func TestLoadCatalogCollectionRejectsInvalidSelection(t *testing.T) {
+	if _, err := loadCatalogCollection("agx.yaml", "personal"); err == nil || !strings.Contains(err.Error(), "cannot be used together") {
+		t.Fatalf("combined flags error = %v", err)
+	}
+	if _, err := parseCatalogNames("personal,personal"); err == nil || !strings.Contains(err.Error(), "more than once") {
+		t.Fatalf("duplicate names error = %v", err)
+	}
+}
+
 func writeCatalogRegistryFixture(t *testing.T, name, skill string) string {
 	t.Helper()
 	root := t.TempDir()

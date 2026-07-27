@@ -269,6 +269,7 @@ func createRollbackGeneration(target, current state.Generation) state.Generation
 		CreatedAt:      now.Format(time.RFC3339Nano),
 		CatalogDigest:  target.CatalogDigest,
 		LockfileDigest: target.LockfileDigest,
+		Catalogs:       append([]string(nil), target.Catalogs...),
 		Profile:        target.Profile,
 		PreviousID:     current.ID,
 	}

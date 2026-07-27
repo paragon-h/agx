@@ -91,12 +91,13 @@ func (r *Runner) Run(ctx context.Context, args []string) int {
 
 func (r *Runner) list(args []string) int {
 	if helpRequested(args) {
-		fmt.Fprintln(r.stdout, "Usage: agx list [--catalog PATH] [--profile NAME]")
+		fmt.Fprintln(r.stdout, "Usage: agx list [--catalog PATH | --catalogs NAME,...] [--profile NAME]")
 		return ExitSuccess
 	}
 	flags := flag.NewFlagSet("list", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	catalogPath := flags.String("catalog", "", "catalog path (defaults to ./agx.yaml or the active Catalog)")
+	catalogNames := flags.String("catalogs", "", "comma-separated registered Catalog names to compose")
 	profileName := flags.String("profile", "", "select Skills and targets from a named profile")
 	if err := flags.Parse(args); err != nil {
 		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", err)
@@ -104,23 +105,20 @@ func (r *Runner) list(args []string) int {
 	if flags.NArg() != 0 {
 		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " ")))
 	}
-	resolvedCatalogPath, err := resolveCatalogPath(*catalogPath)
-	if err != nil {
-		return r.commandError(ExitInvalidConfig, "AGX_CATALOG_NOT_FOUND", err)
+	if *catalogPath != "" && *catalogNames != "" {
+		return r.commandError(ExitInvalidConfig, "AGX_INVALID_ARGUMENT", fmt.Errorf("--catalog and --catalogs cannot be used together"))
 	}
-	document, err := catalog.Load(resolvedCatalogPath)
+	collection, err := loadCatalogCollection(*catalogPath, *catalogNames)
 	if err != nil {
 		return r.commandError(ExitInvalidConfig, "AGX_CATALOG_INVALID", err)
 	}
-	selected, err := document.Catalog.SelectProfile(*profileName)
+	selection, err := collection.SelectProfile(*profileName)
 	if err != nil {
 		return r.commandError(ExitInvalidConfig, "AGX_PROFILE_INVALID", err)
 	}
-	document.Catalog = selected
-	for _, name := range sortedSkillNames(document.Catalog) {
-		skill := document.Catalog.Skills[name]
-		targets := enabledTargets(skill.Targets)
-		fmt.Fprintf(r.stdout, "%s\t%s\t%s\n", catalog.QualifiedName(document.Catalog.Metadata.Name, name), skill.Source.Type, strings.Join(targets, ","))
+	for _, resource := range selection.Resources {
+		targets := enabledTargets(resource.Skill.Targets)
+		fmt.Fprintf(r.stdout, "%s\t%s\t%s\n", resource.QualifiedName, resource.Skill.Source.Type, strings.Join(targets, ","))
 	}
 	return ExitSuccess
 }
@@ -363,5 +361,5 @@ Commands:
   version   Print the AGX version
   help      Show this help
 
-Project status: Skill management, Profiles, and the Codex, Claude, Pi, and OpenCode adapters are implemented; later milestone features remain under development.`)
+Project status: Skill management, Profiles, local multi-Catalog composition, and the Codex, Claude, Pi, and OpenCode adapters are implemented; later milestone features remain under development.`)
 }

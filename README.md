@@ -21,7 +21,7 @@ Skills + Plugins + MCP Servers + Instructions
 
 AGX is currently in the early design and implementation stage. Its CLI, catalog schema, and installation workflow are not yet stable. This README describes the intended architecture; it does not imply that every feature is already available.
 
-The implemented Skill scope currently includes a local Catalog registry with one selected active Catalog, Profiles, a content-addressed Store, `local` and `git` sources, Codex, Claude Code, Pi, and OpenCode adapters, copy-based installation, overlays, and the `init`, `catalog`, `store`, `list`, `lock`, `plan`, `apply`, `status`, `rollback`, `repair`, `diff`, `audit`, `approve`, `update`, and `doctor` commands. Plugins, MCP servers, instructions, remote Catalogs, and multi-Catalog merging remain part of the target model but are not yet implemented.
+The implemented Skill scope currently includes a local Catalog registry, Profiles, explicit local multi-Catalog composition, a content-addressed Store, `local` and `git` sources, Codex, Claude Code, Pi, and OpenCode adapters, copy-based installation, overlays, and the `init`, `catalog`, `store`, `list`, `lock`, `plan`, `apply`, `status`, `rollback`, `repair`, `diff`, `audit`, `approve`, `update`, and `doctor` commands. Plugins, MCP servers, instructions, remote Catalog fetching, and Catalog Git synchronization remain part of the target model but are not yet implemented.
 
 The current prototype can initialize, register, select, load, and lock a local Catalog, check and selectively accept source updates, apply deterministic overlays, compare locked and candidate Skill content, run static risk audits, store digest-bound local approvals, install local or approved Git-backed Skills with copy-based `agx apply`, inspect the active generation, and restore an earlier snapshot. Overlays currently support deterministic `SKILL.md` prepend/append content and disabling named scripts; unsupported rename and target-private metadata are rejected explicitly. Git Skills are unreviewed by default: `plan` and `apply` reject them until `agx approve` records approval for the exact commit, content digest, overlay digest, Adapter security version, and policy digest. Changing any bound value—including accepting an update—invalidates approval. Status and doctor detect unfinished transactions, while `agx repair` safely completes their compensation rollback when recorded content digests still match. Unknown existing targets remain conflicts unless `--adopt` is used with exactly matching content; externally modified managed targets are never silently overwritten. Generations created before rollback snapshots were introduced cannot be restored. GitHub Actions verifies native tests and builds on Linux, macOS, and Windows, with race detection and vetting on Linux.
 
@@ -39,7 +39,7 @@ agx catalog use work
 agx catalog remove personal
 ```
 
-The first registered Catalog becomes active automatically. `remove` only removes the registration and never deletes the Catalog file. Commands that accept `--catalog` resolve their Catalog in this order: an explicit `--catalog`, `agx.yaml` in the current directory, then the active registered Catalog. `agx init` is intentionally different and continues to create `./agx.yaml` unless `--catalog` is supplied. Registry state is stored in the operating system's user configuration directory under `agx/catalogs.yaml`; set the absolute `AGX_CONFIG_HOME` path to override that location. The registry currently accepts local files or directories only. It selects one active Catalog and does not fetch remote Catalog repositories or merge multiple Catalogs.
+The first registered Catalog becomes active automatically. `remove` only removes the registration and never deletes the Catalog file. Commands that accept `--catalog` resolve their Catalog in this order: an explicit `--catalog`, `agx.yaml` in the current directory, then the active registered Catalog. `agx init` is intentionally different and continues to create `./agx.yaml` unless `--catalog` is supplied. Registry state is stored in the operating system's user configuration directory under `agx/catalogs.yaml`; set the absolute `AGX_CONFIG_HOME` path to override that location. The registry currently accepts local files or directories only. One active Catalog is used for default lookup, while `--catalogs` explicitly composes registered local Catalogs. Remote Catalog repositories are not fetched yet.
 
 Profiles select a deployment subset without changing what the lockfile records. A non-empty `skills.include` starts from the named Skills; when `include` is omitted, all Catalog Skills are selected. `skills.exclude` is then removed, and `targets` is intersected with each Skill's enabled targets. Profile names and references are validated when the Catalog is loaded.
 
@@ -58,6 +58,32 @@ profiles:
 ```
 
 Use `agx list --profile work`, `agx plan --profile work`, and `agx apply --profile work`. `agx lock` continues to lock the complete Catalog so switching Profiles does not discard source resolution. Applying a Profile makes its selected set the complete desired installation and removes previously managed targets that are no longer selected. If a Profile selects nothing while managed Skills exist, `plan` and `apply` require `--allow-empty`. Created generations and `agx status` record the selected Profile.
+
+Multiple registered local Catalogs can be composed explicitly without changing the normal single-Catalog lookup behavior. Each Catalog keeps its own adjacent `agx.lock`; lock them separately, then pass a comma-separated registered name list to deployment commands:
+
+```bash
+agx catalog add personal --path ~/my-agx
+agx catalog add work --path ~/work/agx.yaml
+agx lock --catalog ~/my-agx/agx.yaml
+agx lock --catalog ~/work/agx.yaml
+
+agx list --catalogs personal,work
+agx plan --catalogs personal,work
+agx apply --catalogs personal,work
+```
+
+Composed resources always use qualified names such as `personal/code-review` and `work/deploy`. Catalog order does not allow one resource to overwrite another. If two Skills would map to the same Agent target directory, planning fails with an explicit conflict. A Profile can select across Catalogs with qualified references; its own Catalog can still use short references:
+
+```yaml
+profiles:
+  work:
+    skills:
+      include:
+        - code-review
+        - work/deploy
+```
+
+With multiple Catalogs, a short Profile name is accepted only when it is unambiguous; otherwise use a qualified name such as `personal/work`. Composed generations store a deterministic digest of all participating Catalogs and lockfiles, and `agx status` reports their sorted names.
 
 `agx lock` stores the exact raw Skill and Overlay directories under their SHA-256 digests. Locked review, planning, approval, and installation verify and materialize those immutable objects instead of repeatedly fetching Git repositories or depending on a local source directory that may later disappear. Candidate review and update checks still resolve the live source. A changed live local source or Overlay remains lock drift and requires `agx lock`; a missing source can use its verified Store object. Corrupt objects are rejected rather than silently repaired. The Store defaults to `store/` under the AGX state directory and can be relocated with an absolute `AGX_STORE_HOME` path. Automatic garbage collection is not implemented yet.
 
@@ -300,6 +326,7 @@ go run ./cmd/agx catalog list
 
 # With an agx.yaml in the current directory, or an active registered Catalog
 go run ./cmd/agx list
+go run ./cmd/agx list --catalogs personal,work
 go run ./cmd/agx lock           # resolves Git sources when present
 go run ./cmd/agx lock --frozen  # performs no Git or network resolution
 go run ./cmd/agx doctor         # read-only checks for configured agent targets
@@ -310,6 +337,7 @@ go run ./cmd/agx update --check # resolve candidates without changing the lockfi
 go run ./cmd/agx update review --accept # accept one candidate into the lockfile
 go run ./cmd/agx plan --profile work  # read-only target diff for a Profile
 go run ./cmd/agx apply --profile work # transactional copy installation
+go run ./cmd/agx apply --catalogs personal,work # compose registered local Catalogs
 go run ./cmd/agx status         # active generation and target health
 go run ./cmd/agx rollback       # restore the previous snapshotted generation
 go run ./cmd/agx repair         # recover an interrupted transaction

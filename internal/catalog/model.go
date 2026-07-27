@@ -99,19 +99,19 @@ func (c Catalog) Validate() error {
 		if !ValidName(name) || strings.Contains(name, "/") {
 			return fmt.Errorf("profile %q has an invalid short name", name)
 		}
-		if err := profile.Validate(c.Skills); err != nil {
+		if err := profile.Validate(c.Metadata.Name, c.Skills); err != nil {
 			return fmt.Errorf("profile %q: %w", name, err)
 		}
 	}
 	return nil
 }
 
-func (p Profile) Validate(skills map[string]Skill) error {
-	include, err := validateProfileSkillNames("include", p.Skills.Include, skills)
+func (p Profile) Validate(catalogName string, skills map[string]Skill) error {
+	include, err := validateProfileSkillNames("include", catalogName, p.Skills.Include, skills)
 	if err != nil {
 		return err
 	}
-	exclude, err := validateProfileSkillNames("exclude", p.Skills.Exclude, skills)
+	exclude, err := validateProfileSkillNames("exclude", catalogName, p.Skills.Exclude, skills)
 	if err != nil {
 		return err
 	}
@@ -136,21 +136,46 @@ func (p Profile) Validate(skills map[string]Skill) error {
 	return nil
 }
 
-func validateProfileSkillNames(field string, names []string, skills map[string]Skill) (map[string]struct{}, error) {
+func validateProfileSkillNames(field, catalogName string, names []string, skills map[string]Skill) (map[string]struct{}, error) {
 	seen := make(map[string]struct{}, len(names))
-	for _, name := range names {
-		if !ValidName(name) || strings.Contains(name, "/") {
-			return nil, fmt.Errorf("%s skill %q must be a short name", field, name)
+	for _, reference := range names {
+		referenceCatalog, name, qualified, err := ParseQualifiedName(reference)
+		if err != nil {
+			return nil, fmt.Errorf("%s skill %q is invalid", field, reference)
 		}
-		if _, exists := skills[name]; !exists {
-			return nil, fmt.Errorf("%s skill %q is not declared in the catalog", field, name)
+		if !qualified {
+			referenceCatalog = catalogName
 		}
-		if _, exists := seen[name]; exists {
-			return nil, fmt.Errorf("%s skill %q is duplicated", field, name)
+		if referenceCatalog == catalogName {
+			if _, exists := skills[name]; !exists {
+				return nil, fmt.Errorf("%s skill %q is not declared in the catalog", field, reference)
+			}
 		}
-		seen[name] = struct{}{}
+		normalized := QualifiedName(referenceCatalog, name)
+		if _, exists := seen[normalized]; exists {
+			return nil, fmt.Errorf("%s skill %q is duplicated", field, reference)
+		}
+		seen[normalized] = struct{}{}
 	}
 	return seen, nil
+}
+
+func ParseQualifiedName(value string) (catalogName, resourceName string, qualified bool, err error) {
+	parts := strings.Split(value, "/")
+	switch len(parts) {
+	case 1:
+		if !ValidName(parts[0]) {
+			return "", "", false, errors.New("invalid resource name")
+		}
+		return "", parts[0], false, nil
+	case 2:
+		if !ValidName(parts[0]) || !ValidName(parts[1]) {
+			return "", "", false, errors.New("invalid qualified resource name")
+		}
+		return parts[0], parts[1], true, nil
+	default:
+		return "", "", false, errors.New("qualified resource name must contain exactly one slash")
+	}
 }
 
 func (s Skill) Validate() error {
