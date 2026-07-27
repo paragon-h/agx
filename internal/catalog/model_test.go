@@ -64,6 +64,31 @@ func TestCatalogAcceptsAllBuiltInTargets(t *testing.T) {
 	}
 }
 
+func TestCatalogAcceptsSupportedInstructionsTargets(t *testing.T) {
+	catalog := Catalog{
+		APIVersion: APIVersion,
+		Kind:       Kind,
+		Metadata:   Metadata{Name: "personal"},
+		Skills:     map[string]Skill{},
+		Instructions: map[string]Instruction{
+			"common": {
+				Sources: []string{"instructions/common.md"},
+				Targets: map[string]TargetConfig{"codex": {}, "pi": {}, "opencode": {}},
+			},
+		},
+	}
+	if err := catalog.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	catalog.Instructions["common"] = Instruction{
+		Sources: []string{"instructions/common.md"},
+		Targets: map[string]TargetConfig{"claude": {}},
+	}
+	if err := catalog.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want unsupported Claude Instructions target")
+	}
+}
+
 func TestCatalogAcceptsAbsoluteAndHomeLocalPaths(t *testing.T) {
 	for _, sourcePath := range []string{"/opt/agent-skills/review", "~/agent-skills/review"} {
 		t.Run(sourcePath, func(t *testing.T) {

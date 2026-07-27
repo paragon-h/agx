@@ -21,7 +21,7 @@ Skills + Plugins + MCP Servers + Instructions
 
 AGX is currently in the early design and implementation stage. Its CLI, catalog schema, and installation workflow are not yet stable. This README describes the intended architecture; it does not imply that every feature is already available.
 
-The implemented scope currently includes Skills, Codex global Instructions, a local Catalog registry, Profiles, explicit local multi-Catalog composition, a content-addressed Store, `local` and `git` Skill sources, Codex, Claude Code, Pi, and OpenCode adapters, copy-based installation, overlays, and the `init`, `catalog`, `store`, `list`, `lock`, `plan`, `apply`, `status`, `rollback`, `repair`, `diff`, `audit`, `approve`, `update`, and `doctor` commands. Plugins, MCP servers, Instructions targets other than Codex, remote Catalog fetching, and Catalog Git synchronization remain part of the target model but are not yet implemented.
+The implemented scope currently includes Skills, Codex/Pi/OpenCode global Instructions, a local Catalog registry, Profiles, explicit local multi-Catalog composition, a content-addressed Store, `local` and `git` Skill sources, Codex, Claude Code, Pi, and OpenCode adapters, copy-based installation, overlays, and the `init`, `catalog`, `store`, `list`, `lock`, `plan`, `apply`, `status`, `rollback`, `repair`, `diff`, `audit`, `approve`, `update`, and `doctor` commands. Plugins, MCP servers, Claude global Instructions, remote Catalog fetching, and Catalog Git synchronization remain part of the target model but are not yet implemented.
 
 The current prototype can initialize, register, select, load, and lock a local Catalog, check and selectively accept source updates, apply deterministic overlays, compare locked and candidate Skill content, run static risk audits, store digest-bound local approvals, install local or approved Git-backed Skills, manage a marked section in Codex's global `AGENTS.md`, inspect the active generation, and restore an earlier snapshot. Content outside the AGX Instructions markers is preserved during update, removal, and rollback, and edits outside that block are not treated as managed drift. Overlays currently support deterministic `SKILL.md` prepend/append content and disabling named scripts; unsupported rename and target-private metadata are rejected explicitly. Git Skills are unreviewed by default: `plan` and `apply` reject them until `agx approve` records approval for the exact commit, content digest, overlay digest, Adapter security version, and policy digest. Changing any bound value—including accepting an update—invalidates approval. Status and doctor detect unfinished transactions, while `agx repair` safely completes their compensation rollback when recorded content digests still match. Unknown existing Skill targets remain conflicts unless `--adopt` is used with exactly matching content; externally modified managed content is never silently overwritten. Generations created before rollback snapshots were introduced cannot be restored. GitHub Actions verifies native tests and builds on Linux, macOS, and Windows, with race detection and vetting on Linux.
 
@@ -85,7 +85,7 @@ profiles:
 
 With multiple Catalogs, a short Profile name is accepted only when it is unambiguous; otherwise use a qualified name such as `personal/work`. Composed generations store a deterministic digest of all participating Catalogs and lockfiles, and `agx status` reports their sorted names.
 
-Codex global Instructions are declared as ordered Markdown fragments. AGX locks their exact contents, concatenates enabled sets across composed Catalogs deterministically, and manages only a marked block in `$CODEX_HOME/AGENTS.md` (default `~/.codex/AGENTS.md`):
+Global Instructions for Codex, Pi, and OpenCode are declared as ordered Markdown fragments. AGX locks their exact contents, concatenates enabled sets across composed Catalogs deterministically, and manages only a marked block in each target file:
 
 ```yaml
 instructions:
@@ -95,7 +95,11 @@ instructions:
       - instructions/coding.md
     targets:
       codex: {}
+      pi: {}
+      opencode: {}
 ```
+
+The managed paths are `$CODEX_HOME/AGENTS.md` (default `~/.codex/AGENTS.md`), `$PI_CODING_AGENT_DIR/AGENTS.md` (default `~/.pi/agent/AGENTS.md`), and `$XDG_CONFIG_HOME/opencode/AGENTS.md` (default `~/.config/opencode/AGENTS.md`).
 
 If a non-empty `$CODEX_HOME/AGENTS.override.md` exists, `plan`, `apply`, and `doctor` report a conflict because Codex gives it precedence over `AGENTS.md`. Codex loads global guidance when a run starts, so restart the Codex session after applying changed Instructions. Profile `targets` filter Instructions as well as Skills; Instructions sets are otherwise included automatically from the selected Catalogs. Updates, removal, and rollback preserve all content outside `<!-- BEGIN AGX MANAGED INSTRUCTIONS -->` and `<!-- END AGX MANAGED INSTRUCTIONS -->`.
 
@@ -240,6 +244,8 @@ instructions:
       - instructions/safety.md
     targets:
       codex: {}
+      pi: {}
+      opencode: {}
 
 profiles:
   default:

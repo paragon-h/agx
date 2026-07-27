@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -138,6 +139,84 @@ func TestRunnerComposesInstructionsAcrossCatalogsDeterministically(t *testing.T)
 	work := strings.Index(string(content), "Work instructions.")
 	if personal < 0 || work < 0 || personal >= work {
 		t.Fatalf("composed Instructions order is not deterministic: %q", content)
+	}
+}
+
+func TestRunnerAppliesInstructionsToCodexPiAndOpenCode(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "instructions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "instructions", "common.md"), []byte("Shared global instructions.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	catalogPath := filepath.Join(root, "agx.yaml")
+	catalog := `apiVersion: agx.dev/v1alpha1
+kind: Catalog
+metadata:
+  name: personal
+skills: {}
+instructions:
+  common:
+    sources:
+      - instructions/common.md
+    targets:
+      codex: {}
+      pi: {}
+      opencode: {}
+profiles:
+  pi-only:
+    targets:
+      - pi
+`
+	if err := os.WriteFile(catalogPath, []byte(catalog), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	binDirectory := t.TempDir()
+	for _, name := range []string{"codex", "pi", "opencode"} {
+		if err := os.WriteFile(filepath.Join(binDirectory, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", binDirectory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	codexHome := t.TempDir()
+	piHome := t.TempDir()
+	xdgHome := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	t.Setenv("PI_CODING_AGENT_DIR", piHome)
+	t.Setenv("XDG_CONFIG_HOME", xdgHome)
+	t.Setenv("AGX_STATE_HOME", t.TempDir())
+	t.Setenv("AGX_STORE_HOME", t.TempDir())
+	stdout, stderr := &strings.Builder{}, &strings.Builder{}
+	runner := New(stdout, stderr, "dev")
+	runInstructionsCommand(t, runner, stdout, stderr, "lock", "--catalog", catalogPath)
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run(context.Background(), []string{"plan", "--catalog", catalogPath, "--profile", "pi-only", "--json"}); code != ExitSuccess {
+		t.Fatalf("profile plan code = %d, stderr = %q", code, stderr.String())
+	}
+	var profilePlan planReport
+	if err := json.Unmarshal([]byte(stdout.String()), &profilePlan); err != nil {
+		t.Fatal(err)
+	}
+	if len(profilePlan.Changes) != 1 || profilePlan.Changes[0].Target != "pi" {
+		t.Fatalf("profile Instructions plan = %#v", profilePlan)
+	}
+
+	runInstructionsCommand(t, runner, stdout, stderr, "apply", "--catalog", catalogPath)
+	targets := []string{
+		filepath.Join(codexHome, "AGENTS.md"),
+		filepath.Join(piHome, "AGENTS.md"),
+		filepath.Join(xdgHome, "opencode", "AGENTS.md"),
+	}
+	for _, target := range targets {
+		assertInstructionsFile(t, target, "Shared global instructions.")
+	}
+	current, err := state.Current()
+	if err != nil || current == nil || len(current.Entries) != 3 {
+		t.Fatalf("multi-target generation = %#v, err = %v", current, err)
 	}
 }
 

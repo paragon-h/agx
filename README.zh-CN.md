@@ -21,7 +21,7 @@ Skills + Plugins + MCP Servers + Instructions
 
 AGX 目前处于早期设计和实现阶段，CLI、Catalog Schema 和安装流程尚未对外稳定。本 README 描述的是目标架构，不代表所有功能已经可用。
 
-当前已经实现的范围包括：Skills、Codex 全局 Instructions、本地 Catalog 注册表、Profiles、显式本地多 Catalog 组合、内容寻址 Store、Skill 的 `local`/`git` 来源、Codex、Claude Code、Pi、OpenCode Adapter、复制安装、Overlay，以及 `init`、`catalog`、`store`、`list`、`lock`、`plan`、`apply`、`status`、`rollback`、`repair`、`diff`、`audit`、`approve`、`update`、`doctor` 命令。Plugins、MCP Servers、Codex 之外的 Instructions 目标、远程 Catalog 获取和 Catalog Git 同步仍属于目标模型，尚未实现。
+当前已经实现的范围包括：Skills、Codex/Pi/OpenCode 全局 Instructions、本地 Catalog 注册表、Profiles、显式本地多 Catalog 组合、内容寻址 Store、Skill 的 `local`/`git` 来源、Codex、Claude Code、Pi、OpenCode Adapter、复制安装、Overlay，以及 `init`、`catalog`、`store`、`list`、`lock`、`plan`、`apply`、`status`、`rollback`、`repair`、`diff`、`audit`、`approve`、`update`、`doctor` 命令。Plugins、MCP Servers、Claude 全局 Instructions、远程 Catalog 获取和 Catalog Git 同步仍属于目标模型，尚未实现。
 
 当前原型已经可以初始化、注册、选择、加载并锁定本地 Catalog、检查并选择性接受来源更新、应用确定性的 Overlay、比较锁定内容和候选 Skill、执行静态风险审计、保存与摘要绑定的本机审批，通过 copy 模式的 `agx apply` 安装本地或已审批的 Git 来源 Skills，并管理 Codex 全局 `AGENTS.md` 中带标记的区块。更新、移除和回滚 Instructions 时，AGX 会保留托管标记之外的内容；用户修改区块之外的内容也不会被判定为托管漂移。当前 Overlay 支持对 `SKILL.md` 追加前置/后置内容，以及禁用指定脚本；尚未支持的 rename 和目标私有 metadata 会明确拒绝。Git Skill 默认处于未审查状态：只有 `agx approve` 为精确 commit、内容摘要、Overlay 摘要、Adapter 安全版本和策略摘要记录审批后，`plan` 和 `apply` 才会继续；任一绑定值变化（包括接受更新）都会使审批失效。Status 和 doctor 可以识别未完成的事务；当 journal 记录的内容摘要仍然匹配时，`agx repair` 会安全完成补偿回滚。未知现有 Skill 目标仍默认视为冲突，只有内容完全一致时才能使用 `--adopt`；被外部修改的受管理内容不会被静默覆盖。引入回滚快照之前创建的 generation 无法恢复。GitHub Actions 会在 Linux、macOS 和 Windows 上执行原生测试与构建，并在 Linux 上运行 race 检查和 vet。
 
@@ -85,7 +85,7 @@ profiles:
 
 组合多个 Catalog 时，只有无歧义的 Profile 短名称才会被接受；否则必须使用 `personal/work` 这样的完全限定名称。组合 generation 会保存全部参与 Catalog 和 lockfile 的确定性摘要，`agx status` 会报告排序后的 Catalog 名称。
 
-Codex 全局 Instructions 由按顺序排列的 Markdown 片段声明。AGX 会锁定片段的精确内容，确定性拼接组合 Catalog 中启用的 Instructions，并且只管理 `$CODEX_HOME/AGENTS.md`（默认 `~/.codex/AGENTS.md`）中的标记区块：
+Codex、Pi 和 OpenCode 的全局 Instructions 由按顺序排列的 Markdown 片段声明。AGX 会锁定片段的精确内容，确定性拼接组合 Catalog 中启用的 Instructions，并且只管理各目标文件中的标记区块：
 
 ```yaml
 instructions:
@@ -95,7 +95,11 @@ instructions:
       - instructions/coding.md
     targets:
       codex: {}
+      pi: {}
+      opencode: {}
 ```
+
+托管路径分别是 `$CODEX_HOME/AGENTS.md`（默认 `~/.codex/AGENTS.md`）、`$PI_CODING_AGENT_DIR/AGENTS.md`（默认 `~/.pi/agent/AGENTS.md`），以及 `$XDG_CONFIG_HOME/opencode/AGENTS.md`（默认 `~/.config/opencode/AGENTS.md`）。
 
 如果存在非空的 `$CODEX_HOME/AGENTS.override.md`，`plan`、`apply` 和 `doctor` 会报告冲突，因为 Codex 会优先读取它而不是 `AGENTS.md`。Codex 在每次 run 启动时加载全局 guidance，因此 Instructions 发生变化后需要重新启动 Codex session。Profile 的 `targets` 会同时过滤 Skills 和 Instructions；除此之外，所选 Catalog 中的 Instructions 集会自动纳入部署。更新、移除和回滚只会改动 `<!-- BEGIN AGX MANAGED INSTRUCTIONS -->` 与 `<!-- END AGX MANAGED INSTRUCTIONS -->` 之间的内容。
 
@@ -240,6 +244,8 @@ instructions:
       - instructions/safety.md
     targets:
       codex: {}
+      pi: {}
+      opencode: {}
 
 profiles:
   default:

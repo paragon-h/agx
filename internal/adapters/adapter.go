@@ -65,7 +65,7 @@ func SkillsPath(envKey, defaultDirectory string) (string, error) {
 	return filepath.Join(home, "skills"), nil
 }
 
-func XDGSkillsPath(application string) (string, error) {
+func XDGConfigPath(application string) (string, error) {
 	configHome := os.Getenv("XDG_CONFIG_HOME")
 	if configHome == "" {
 		home, err := os.UserHomeDir()
@@ -83,7 +83,7 @@ func XDGSkillsPath(application string) (string, error) {
 			return "", errors.New("XDG_CONFIG_HOME must be an absolute path or use ~/ for the user home")
 		}
 	}
-	return filepath.Join(filepath.Clean(configHome), application, "skills"), nil
+	return filepath.Join(filepath.Clean(configHome), application), nil
 }
 
 func expandHomePath(value string) (string, error) {

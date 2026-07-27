@@ -96,10 +96,11 @@
         "targets": {
           "type": "object",
           "minProperties": 1,
-          "maxProperties": 1,
           "additionalProperties": false,
           "properties": {
-            "codex": { "$ref": "#/$defs/target" }
+            "codex": { "$ref": "#/$defs/target" },
+            "pi": { "$ref": "#/$defs/target" },
+            "opencode": { "$ref": "#/$defs/target" }
           }
         }
       }

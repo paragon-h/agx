@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"context"
+	"path/filepath"
 
 	"github.com/paragon-h/agx/internal/adapters"
 )
@@ -17,9 +18,12 @@ func (Adapter) Detect(context.Context) (adapters.Detection, error) {
 }
 
 func (Adapter) ResolvePaths(context.Context) (adapters.Paths, error) {
-	path, err := adapters.XDGSkillsPath("opencode")
+	home, err := adapters.XDGConfigPath("opencode")
 	if err != nil {
 		return adapters.Paths{}, err
 	}
-	return adapters.Paths{SkillsDir: path}, nil
+	return adapters.Paths{
+		SkillsDir:        filepath.Join(home, "skills"),
+		InstructionsFile: filepath.Join(home, "AGENTS.md"),
+	}, nil
 }

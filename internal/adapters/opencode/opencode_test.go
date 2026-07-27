@@ -16,6 +16,9 @@ func TestResolvePaths(t *testing.T) {
 	if want := filepath.Join(configHome, "opencode", "skills"); paths.SkillsDir != want {
 		t.Fatalf("SkillsDir = %q, want %q", paths.SkillsDir, want)
 	}
+	if want := filepath.Join(configHome, "opencode", "AGENTS.md"); paths.InstructionsFile != want {
+		t.Fatalf("InstructionsFile = %q, want %q", paths.InstructionsFile, want)
+	}
 }
 
 func TestResolvePathsUsesDefaultConfigHome(t *testing.T) {
@@ -29,5 +32,8 @@ func TestResolvePathsUsesDefaultConfigHome(t *testing.T) {
 	}
 	if want := filepath.Join(home, ".config", "opencode", "skills"); paths.SkillsDir != want {
 		t.Fatalf("SkillsDir = %q, want %q", paths.SkillsDir, want)
+	}
+	if want := filepath.Join(home, ".config", "opencode", "AGENTS.md"); paths.InstructionsFile != want {
+		t.Fatalf("InstructionsFile = %q, want %q", paths.InstructionsFile, want)
 	}
 }

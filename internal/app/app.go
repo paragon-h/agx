@@ -449,5 +449,5 @@ Commands:
   version   Print the AGX version
   help      Show this help
 
-Project status: Skill management, Codex global Instructions, Profiles, local multi-Catalog composition, and the Codex, Claude, Pi, and OpenCode adapters are implemented; later milestone features remain under development.`)
+Project status: Skill management, Codex/Pi/OpenCode global Instructions, Profiles, local multi-Catalog composition, and the Codex, Claude, Pi, and OpenCode adapters are implemented; later milestone features remain under development.`)
 }
