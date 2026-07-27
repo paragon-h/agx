@@ -15,6 +15,8 @@ import (
 	"github.com/paragon-h/agx/internal/filetree"
 	"github.com/paragon-h/agx/internal/installer"
 	"github.com/paragon-h/agx/internal/instructions"
+	"github.com/paragon-h/agx/internal/lockfile"
+	"github.com/paragon-h/agx/internal/mcpconfig"
 	"github.com/paragon-h/agx/internal/state"
 )
 
@@ -161,12 +163,29 @@ func buildRollbackPlan(current, target state.Generation) (planReport, error) {
 			if readErr != nil {
 				return planReport{}, fmt.Errorf("generation %s artifact for %s: %w", target.ID, desired.Skill, readErr)
 			}
-			parsed, parseErr := instructions.Parse(artifactContent)
-			if parseErr != nil || !parsed.Found || contenthash.Bytes(parsed.Managed) != desired.ManagedDigest {
-				return planReport{}, fmt.Errorf("generation %s artifact for %s has invalid managed Instructions", target.ID, desired.Skill)
-			}
 			existing, managed := currentByPath[filepath.Clean(desired.Path)]
-			change := inspectInstructionTarget(desired.Target, desired.Path, desiredInstruction{Target: desired.Target, Content: parsed.Managed, ManagedDigest: desired.ManagedDigest}, false, managed, existing)
+			var change planChange
+			if desired.Skill == "mcp-servers" {
+				parsed, parseErr := mcpconfig.Parse(artifactContent)
+				if parseErr != nil || !parsed.Found || contenthash.Bytes(parsed.Managed) != desired.ManagedDigest {
+					return planReport{}, fmt.Errorf("generation %s artifact for %s has invalid managed MCP configuration", target.ID, desired.Skill)
+				}
+				names, namesErr := mcpconfig.ServerNames(parsed.Managed)
+				if namesErr != nil {
+					return planReport{}, fmt.Errorf("generation %s artifact for %s: %w", target.ID, desired.Skill, namesErr)
+				}
+				servers := make(map[string]lockfile.LockedMCPServer, len(names))
+				for _, name := range names {
+					servers[name] = lockfile.LockedMCPServer{}
+				}
+				change = inspectMCPConfigTarget(desired.Target, desired.Path, desiredMCPConfig{Target: desired.Target, Servers: servers, Content: parsed.Managed, ManagedDigest: desired.ManagedDigest}, false, managed, existing)
+			} else {
+				parsed, parseErr := instructions.Parse(artifactContent)
+				if parseErr != nil || !parsed.Found || contenthash.Bytes(parsed.Managed) != desired.ManagedDigest {
+					return planReport{}, fmt.Errorf("generation %s artifact for %s has invalid managed Instructions", target.ID, desired.Skill)
+				}
+				change = inspectInstructionTarget(desired.Target, desired.Path, desiredInstruction{Target: desired.Target, Content: parsed.Managed, ManagedDigest: desired.ManagedDigest}, false, managed, existing)
+			}
 			report.Changes = append(report.Changes, change)
 			addPlanSummary(&report.Summary, change.Action)
 			continue
@@ -206,7 +225,7 @@ func buildRollbackPlan(current, target state.Generation) (planReport, error) {
 			continue
 		}
 		if existing.Kind == "file" && existing.ManagedDigest != "" {
-			change := inspectInstructionRemoval(existing)
+			change := inspectManagedFileRemoval(existing)
 			report.Changes = append(report.Changes, change)
 			addPlanSummary(&report.Summary, change.Action)
 			continue
@@ -254,10 +273,10 @@ func inspectRollbackCurrent(entry state.Entry, change *planChange) string {
 			change.Reason = readErr.Error()
 			return digest
 		}
-		managedDigest, found, parseErr := instructions.DigestManaged(content)
+		managedDigest, found, parseErr := digestManagedFile(entry, content)
 		if parseErr != nil || !found || managedDigest != entry.ManagedDigest {
 			change.Action = "conflict"
-			change.Reason = "managed Instructions were modified outside AGX"
+			change.Reason = "managed file content was modified outside AGX"
 		}
 		return digest
 	}

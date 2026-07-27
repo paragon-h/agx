@@ -21,9 +21,9 @@ Skills + Plugins + MCP Servers + Instructions
 
 AGX 目前处于早期设计和实现阶段，CLI、Catalog Schema 和安装流程尚未对外稳定。本 README 描述的是目标架构，不代表所有功能已经可用。
 
-当前已经实现的范围包括：Skills、Codex/Pi/OpenCode 全局 Instructions、本地 Catalog 注册表、Profiles、显式本地多 Catalog 组合、内容寻址 Store、Skill 的 `local`/`git` 来源、Codex、Claude Code、Pi、OpenCode Adapter、复制安装、Overlay，以及 `init`、`catalog`、`store`、`list`、`lock`、`plan`、`apply`、`status`、`rollback`、`repair`、`diff`、`audit`、`approve`、`update`、`doctor` 命令。Plugins、MCP Servers、Claude 全局 Instructions、远程 Catalog 获取和 Catalog Git 同步仍属于目标模型，尚未实现。
+当前已经实现的范围包括：Skills、Codex STDIO MCP Servers、Codex/Pi/OpenCode 全局 Instructions、本地 Catalog 注册表、Profiles、显式本地多 Catalog 组合、内容寻址 Store、Skill 的 `local`/`git` 来源、Codex、Claude Code、Pi、OpenCode Adapter、复制安装、Overlay，以及 `init`、`catalog`、`store`、`list`、`lock`、`plan`、`apply`、`status`、`rollback`、`repair`、`diff`、`audit`、`approve`、`update`、`doctor` 命令。Plugins、更多 MCP transport 和 target、Claude 全局 Instructions、远程 Catalog 获取和 Catalog Git 同步仍属于目标模型，尚未实现。
 
-当前原型已经可以初始化、注册、选择、加载并锁定本地 Catalog、检查并选择性接受来源更新、应用确定性的 Overlay、比较锁定内容和候选 Skill、执行静态风险审计、保存与摘要绑定的本机审批，通过 copy 模式的 `agx apply` 安装本地或已审批的 Git 来源 Skills，并管理 Codex 全局 `AGENTS.md` 中带标记的区块。更新、移除和回滚 Instructions 时，AGX 会保留托管标记之外的内容；用户修改区块之外的内容也不会被判定为托管漂移。当前 Overlay 支持对 `SKILL.md` 追加前置/后置内容，以及禁用指定脚本；尚未支持的 rename 和目标私有 metadata 会明确拒绝。Git Skill 默认处于未审查状态：只有 `agx approve` 为精确 commit、内容摘要、Overlay 摘要、Adapter 安全版本和策略摘要记录审批后，`plan` 和 `apply` 才会继续；任一绑定值变化（包括接受更新）都会使审批失效。Status 和 doctor 可以识别未完成的事务；当 journal 记录的内容摘要仍然匹配时，`agx repair` 会安全完成补偿回滚。未知现有 Skill 目标仍默认视为冲突，只有内容完全一致时才能使用 `--adopt`；被外部修改的受管理内容不会被静默覆盖。引入回滚快照之前创建的 generation 无法恢复。GitHub Actions 会在 Linux、macOS 和 Windows 上执行原生测试与构建，并在 Linux 上运行 race 检查和 vet。
+当前原型已经可以初始化、注册、选择、加载并锁定本地 Catalog、检查并选择性接受来源更新、应用确定性的 Overlay、比较锁定内容和候选 Skill、执行静态风险审计、保存与摘要绑定的本机审批，通过 copy 模式的 `agx apply` 安装本地或已审批的 Git 来源 Skills，并管理 Codex 全局 `AGENTS.md` 和 `config.toml` 中带标记的区块。更新、移除和回滚时，AGX 会保留托管标记之外的内容；用户修改区块之外的内容也不会被判定为托管漂移。当前 Overlay 支持对 `SKILL.md` 追加前置/后置内容，以及禁用指定脚本；尚未支持的 rename 和目标私有 metadata 会明确拒绝。Git Skill 默认处于未审查状态：只有 `agx approve` 为精确 commit、内容摘要、Overlay 摘要、Adapter 安全版本和策略摘要记录审批后，`plan` 和 `apply` 才会继续；任一绑定值变化（包括接受更新）都会使审批失效。Status 和 doctor 可以识别未完成的事务；当 journal 记录的内容摘要仍然匹配时，`agx repair` 会安全完成补偿回滚。未知现有 Skill 目标仍默认视为冲突，只有内容完全一致时才能使用 `--adopt`；被外部修改的受管理内容不会被静默覆盖。引入回滚快照之前创建的 generation 无法恢复。GitHub Actions 会在 Linux、macOS 和 Windows 上执行原生测试与构建，并在 Linux 上运行 race 检查和 vet。
 
 本地 Skill、overlay 和 Instructions source 路径可以使用相对于 Catalog 的路径、绝对路径，或者以 `~/` 表示当前用户家目录。例如，在类 Unix 系统中可以使用 `skills/review`、`~/agent-skills/review` 和 `/opt/agent-skills/review`；Windows 也支持 `C:\agent-skills\review` 这样的原生绝对路径。AGX 不展开环境变量，也不支持 `~alice` 这样的其他用户家目录。Git 来源的 `path` 仍必须相对于仓库根目录。由于原始路径表达式会保存在 `agx.lock` 中，多台机器共用同一 Catalog 时，建议优先使用 `~/`，避免使用绑定单台机器的绝对路径。
 
@@ -102,6 +102,25 @@ instructions:
 托管路径分别是 `$CODEX_HOME/AGENTS.md`（默认 `~/.codex/AGENTS.md`）、`$PI_CODING_AGENT_DIR/AGENTS.md`（默认 `~/.pi/agent/AGENTS.md`），以及 `$XDG_CONFIG_HOME/opencode/AGENTS.md`（默认 `~/.config/opencode/AGENTS.md`）。
 
 如果存在非空的 `$CODEX_HOME/AGENTS.override.md`，`plan`、`apply` 和 `doctor` 会报告冲突，因为 Codex 会优先读取它而不是 `AGENTS.md`。Codex 在每次 run 启动时加载全局 guidance，因此 Instructions 发生变化后需要重新启动 Codex session。Profile 的 `targets` 会同时过滤 Skills 和 Instructions；除此之外，所选 Catalog 中的 Instructions 集会自动纳入部署。更新、移除和回滚只会改动 `<!-- BEGIN AGX MANAGED INSTRUCTIONS -->` 与 `<!-- END AGX MANAGED INSTRUCTIONS -->` 之间的内容。
+
+Codex STDIO MCP Server 使用可执行文件、参数数组、转发的环境变量名和 Codex target 声明：
+
+```yaml
+mcpServers:
+  github:
+    transport: stdio
+    command:
+      executable: github-mcp-server
+      args: [stdio]
+    environment:
+      GITHUB_TOKEN:
+        from: env
+        name: GITHUB_TOKEN
+    targets:
+      codex: {}
+```
+
+`agx lock` 只记录声明，绝不会写入 `GITHUB_TOKEN` 的实际值。`plan` 和 `apply` 要求可执行文件以及所有待转发环境变量在当前机器上可用。AGX 只管理 `$CODEX_HOME/config.toml`（默认 `~/.codex/config.toml`）中的标记区块，保留无关 TOML 配置，拒绝同名的非托管 server table，并把该区块纳入 status、rollback 和事务恢复。MCP 配置变化后需要重启或刷新 Codex。
 
 `agx lock` 会按 SHA-256 摘要保存精确的原始 Skill 和 Overlay 目录。锁定内容的审查、规划、审批和安装会校验并物化这些不可变对象，不再重复拉取 Git 仓库，也不依赖之后可能消失的本地来源目录。候选内容审查和更新检查仍解析实时来源。实时本地来源或 Overlay 一旦发生变化，仍视为 lock drift，需要重新执行 `agx lock`；来源仅仅缺失时，可以使用已验证的 Store 对象。损坏对象会被明确拒绝，不会静默修复。Store 默认位于 AGX 状态目录下的 `store/`，也可以通过绝对路径环境变量 `AGX_STORE_HOME` 调整位置。自动垃圾回收尚未实现。
 
@@ -317,12 +336,12 @@ AGX 计划使用 Go 实现，以单一二进制提供 macOS、Linux 和 Windows 
 
 1. 本地 Catalog、`local`/`git` 来源、Codex、Claude、Pi、OpenCode Adapter 和安全复制安装。
 2. Store 生命周期和垃圾回收、更丰富的 Overlay patch、差异与审计、Generation 和回滚。
-3. Plugins、MCP、Instructions、Profiles、多 Catalog 组合及更多 Agent Adapter。
+3. Plugins、更多 MCP transport/target、更多 Instructions target 及更多 Agent Adapter。
 4. Archive 来源、签名验证、公共 Catalog 索引和包管理器分发。
 
 ## 开发
 
-当前代码骨架要求 Go 1.26 或更高版本，并且没有第三方运行时依赖。
+当前代码骨架要求 Go 1.26 或更高版本。
 
 ```bash
 make build       # 生成 bin/agx（Windows 为 bin/agx.exe）

@@ -25,6 +25,7 @@ type Paths struct {
 	SkillsDir                string
 	InstructionsFile         string
 	InstructionsOverrideFile string
+	ConfigFile               string
 }
 
 func DetectExecutable(name string) Detection {

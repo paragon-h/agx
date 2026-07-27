@@ -28,6 +28,15 @@ type Lockfile struct {
 	CatalogDigest string                       `json:"catalogDigest" yaml:"catalogDigest"`
 	Skills        map[string]LockedSkill       `json:"skills" yaml:"skills"`
 	Instructions  map[string]LockedInstruction `json:"instructions,omitempty" yaml:"instructions,omitempty"`
+	MCPServers    map[string]LockedMCPServer   `json:"mcpServers,omitempty" yaml:"mcpServers,omitempty"`
+}
+
+type LockedMCPServer struct {
+	Transport   string                                     `json:"transport" yaml:"transport"`
+	Command     catalog.MCPCommand                         `json:"command" yaml:"command"`
+	Environment map[string]catalog.MCPEnvironmentReference `json:"environment,omitempty" yaml:"environment,omitempty"`
+	Targets     map[string]catalog.TargetConfig            `json:"targets" yaml:"targets"`
+	LockedAt    string                                     `json:"lockedAt" yaml:"lockedAt"`
 }
 
 type LockedInstruction struct {
@@ -82,6 +91,30 @@ func (l Lockfile) Validate() error {
 		if err := instruction.Validate(); err != nil {
 			return fmt.Errorf("instructions %q: %w", name, err)
 		}
+	}
+	for name, server := range l.MCPServers {
+		if !catalog.ValidName(name) {
+			return fmt.Errorf("MCP server %q has an invalid short name", name)
+		}
+		if err := server.Validate(); err != nil {
+			return fmt.Errorf("MCP server %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func (m LockedMCPServer) Validate() error {
+	declaration := catalog.MCPServer{
+		Transport:   m.Transport,
+		Command:     m.Command,
+		Environment: m.Environment,
+		Targets:     m.Targets,
+	}
+	if err := declaration.Validate(); err != nil {
+		return err
+	}
+	if _, err := time.Parse(time.RFC3339, m.LockedAt); err != nil {
+		return errors.New("lockedAt must be an RFC 3339 timestamp")
 	}
 	return nil
 }

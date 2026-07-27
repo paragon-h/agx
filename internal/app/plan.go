@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/paragon-h/agx/internal/contenthash"
 	"github.com/paragon-h/agx/internal/instructions"
 	"github.com/paragon-h/agx/internal/lockfile"
+	"github.com/paragon-h/agx/internal/mcpconfig"
 	"github.com/paragon-h/agx/internal/overlay"
 	"github.com/paragon-h/agx/internal/state"
 	"github.com/paragon-h/agx/internal/store"
@@ -128,7 +130,7 @@ func (r *Runner) plan(ctx context.Context, args []string) int {
 }
 
 func requireEmptySelectionConfirmation(desired desiredState, current *state.Generation, allowEmpty bool) error {
-	if len(desired.Skills)+len(desired.Instructions) != 0 || current == nil || len(current.Entries) == 0 || allowEmpty {
+	if len(desired.Skills)+len(desired.Instructions)+len(desired.MCPConfigs) != 0 || current == nil || len(current.Entries) == 0 || allowEmpty {
 		return nil
 	}
 	if desired.Profile != "" {
@@ -174,8 +176,17 @@ func buildPlan(ctx context.Context, desired desiredState, adopt bool, managed ma
 		}
 		resolvedPaths[entry.Target] = paths
 		if entry.Kind == "file" {
-			if entry.Skill != "instructions" || paths.InstructionsFile == "" || filepath.Clean(entry.Path) != filepath.Clean(paths.InstructionsFile) || entry.ManagedDigest == "" {
-				return planReport{}, ExitTargetConflict, fmt.Errorf("managed Instructions path is invalid for %q: %s", entry.Target, entry.Path)
+			valid := entry.ManagedDigest != ""
+			switch entry.Skill {
+			case "instructions":
+				valid = valid && paths.InstructionsFile != "" && filepath.Clean(entry.Path) == filepath.Clean(paths.InstructionsFile)
+			case "mcp-servers":
+				valid = valid && paths.ConfigFile != "" && filepath.Clean(entry.Path) == filepath.Clean(paths.ConfigFile)
+			default:
+				valid = false
+			}
+			if !valid {
+				return planReport{}, ExitTargetConflict, fmt.Errorf("managed file path is invalid for %q: %s", entry.Target, entry.Path)
 			}
 			continue
 		}
@@ -252,6 +263,24 @@ func buildPlan(ctx context.Context, desired desiredState, adopt bool, managed ma
 		report.Changes = append(report.Changes, change)
 		addPlanSummary(&report.Summary, change.Action)
 	}
+	for _, desiredConfig := range desired.MCPConfigs {
+		paths := resolvedPaths[desiredConfig.Target]
+		if paths.ConfigFile == "" {
+			return planReport{}, ExitAgentUnavailable, fmt.Errorf("target %q does not support MCP servers", desiredConfig.Target)
+		}
+		if err := validateMCPRuntime(desiredConfig); err != nil {
+			return planReport{}, ExitAgentUnavailable, err
+		}
+		targetPath := filepath.Clean(paths.ConfigFile)
+		if existing, exists := desiredOwners[targetPath]; exists {
+			return planReport{}, ExitTargetConflict, fmt.Errorf("resources %s and MCP servers resolve to the same %s target path %s", existing, desiredConfig.Target, targetPath)
+		}
+		desiredOwners[targetPath] = "mcp-servers"
+		managedEntry, isManaged := managed[targetPath]
+		change := inspectMCPConfigTarget(desiredConfig.Target, targetPath, desiredConfig, adopt, isManaged, managedEntry)
+		report.Changes = append(report.Changes, change)
+		addPlanSummary(&report.Summary, change.Action)
+	}
 	desiredPaths := make(map[string]struct{}, len(report.Changes))
 	for _, change := range report.Changes {
 		desiredPaths[filepath.Clean(change.Path)] = struct{}{}
@@ -261,7 +290,7 @@ func buildPlan(ctx context.Context, desired desiredState, adopt bool, managed ma
 			continue
 		}
 		if entry.Kind == "file" && entry.ManagedDigest != "" {
-			change := inspectInstructionRemoval(entry)
+			change := inspectManagedFileRemoval(entry)
 			report.Changes = append(report.Changes, change)
 			addPlanSummary(&report.Summary, change.Action)
 			continue
@@ -301,6 +330,136 @@ func buildPlan(ctx context.Context, desired desiredState, adopt bool, managed ma
 		return report.Changes[i].Skill < report.Changes[j].Skill
 	})
 	return report, ExitSuccess, nil
+}
+
+func validateMCPRuntime(config desiredMCPConfig) error {
+	for _, name := range sortedMapKeys(config.Servers) {
+		server := config.Servers[name]
+		if _, err := exec.LookPath(server.Command.Executable); err != nil {
+			return fmt.Errorf("MCP server %q executable %q is not available: %w", name, server.Command.Executable, err)
+		}
+		for _, variable := range sortedMapKeys(server.Environment) {
+			reference := server.Environment[variable]
+			value, exists := os.LookupEnv(reference.Name)
+			if !exists || value == "" {
+				return fmt.Errorf("MCP server %q requires non-empty environment variable %s", name, reference.Name)
+			}
+		}
+	}
+	return nil
+}
+
+func inspectMCPConfigTarget(target, path string, desired desiredMCPConfig, adopt, managed bool, managedEntry state.Entry) planChange {
+	change := planChange{Target: target, Skill: "mcp-servers", Path: path, Kind: "file", ManagedDigest: desired.ManagedDigest}
+	existing, exists, err := readRegularFile(path)
+	if err != nil {
+		change.Action = "conflict"
+		change.Reason = err.Error()
+		return change
+	}
+	rendered, err := mcpconfig.Render(existing, desired.Content, sortedMapKeys(desired.Servers))
+	if err != nil {
+		change.Action = "conflict"
+		change.Reason = err.Error()
+		return change
+	}
+	change.content = rendered
+	change.DesiredDigest = contenthash.Bytes(rendered)
+	if !exists {
+		change.Action = "add"
+		return change
+	}
+	change.CurrentDigest = contenthash.Bytes(existing)
+	managedDigest, found, err := mcpconfig.DigestManaged(existing)
+	if err != nil {
+		change.Action = "conflict"
+		change.Reason = err.Error()
+		return change
+	}
+	if managed {
+		if managedEntry.Kind != "file" || managedEntry.Target != target || managedEntry.Skill != "mcp-servers" || managedEntry.ManagedDigest == "" {
+			change.Action = "conflict"
+			change.Reason = "generation ownership does not match the requested MCP configuration"
+			return change
+		}
+		if !found || managedDigest != managedEntry.ManagedDigest {
+			change.Action = "conflict"
+			change.Reason = "managed MCP servers were modified outside AGX"
+			return change
+		}
+		if managedDigest == desired.ManagedDigest {
+			change.Action = "unchanged"
+			change.DesiredDigest = change.CurrentDigest
+			change.content = existing
+			return change
+		}
+		change.Action = "update"
+		return change
+	}
+	if found {
+		if managedDigest != desired.ManagedDigest {
+			change.Action = "conflict"
+			change.Reason = "unmanaged AGX MCP block differs"
+			return change
+		}
+		if !adopt {
+			change.Action = "conflict"
+			change.Reason = "unmanaged AGX MCP block matches; rerun with --adopt to take ownership"
+			return change
+		}
+		change.Action = "adopt"
+		change.DesiredDigest = change.CurrentDigest
+		change.content = existing
+		return change
+	}
+	change.Action = "update"
+	change.Reason = "add the AGX managed MCP block while preserving existing Codex configuration"
+	return change
+}
+
+func inspectManagedFileRemoval(entry state.Entry) planChange {
+	if entry.Skill == "mcp-servers" {
+		return inspectMCPConfigRemoval(entry)
+	}
+	return inspectInstructionRemoval(entry)
+}
+
+func inspectMCPConfigRemoval(entry state.Entry) planChange {
+	change := planChange{Target: entry.Target, Skill: entry.Skill, Path: entry.Path, Kind: "file", Action: "remove", Reason: "managed MCP servers are no longer declared"}
+	existing, exists, err := readRegularFile(entry.Path)
+	if err != nil {
+		change.Action = "conflict"
+		change.Reason = err.Error()
+		return change
+	}
+	if !exists {
+		change.Reason = "managed Codex config file is already absent"
+		return change
+	}
+	change.CurrentDigest = contenthash.Bytes(existing)
+	managedDigest, found, err := mcpconfig.DigestManaged(existing)
+	if err != nil || !found || managedDigest != entry.ManagedDigest {
+		change.Action = "conflict"
+		if err != nil {
+			change.Reason = err.Error()
+		} else {
+			change.Reason = "managed MCP servers were modified outside AGX"
+		}
+		return change
+	}
+	remaining, _, err := mcpconfig.Remove(existing)
+	if err != nil {
+		change.Action = "conflict"
+		change.Reason = err.Error()
+		return change
+	}
+	if len(remaining) != 0 {
+		change.Action = "release"
+		change.content = remaining
+		change.DesiredDigest = contenthash.Bytes(remaining)
+		change.Reason = "remove only the AGX managed MCP block"
+	}
+	return change
 }
 
 func addPlanSummary(summary *planSummary, action string) {
@@ -512,6 +671,9 @@ func verifyPlanSources(ctx context.Context, document catalog.Document, locked lo
 	if len(document.Catalog.Instructions) != len(locked.Instructions) {
 		return ExitLockOutdated, errors.New("catalog and lockfile contain different Instructions sets")
 	}
+	if len(document.Catalog.MCPServers) != len(locked.MCPServers) {
+		return ExitLockOutdated, errors.New("catalog and lockfile contain different MCP server sets")
+	}
 	for _, name := range sortedSkillNames(document.Catalog) {
 		skill := document.Catalog.Skills[name]
 		lockedSkill, ok := locked.Skills[name]
@@ -611,6 +773,15 @@ func verifyPlanSources(ctx context.Context, document catalog.Document, locked lo
 		}
 		if !sameLockedInstructionContent(current, lockedInstruction) {
 			return ExitLockOutdated, fmt.Errorf("instructions %q changed", name)
+		}
+	}
+	for name, declaration := range document.Catalog.MCPServers {
+		lockedServer, ok := locked.MCPServers[name]
+		if !ok {
+			return ExitLockOutdated, fmt.Errorf("MCP server %q is missing from lockfile", name)
+		}
+		if !mcpDeclarationMatchesLock(declaration, lockedServer) {
+			return ExitLockOutdated, fmt.Errorf("MCP server %q differs from lockfile", name)
 		}
 	}
 	return ExitSuccess, nil

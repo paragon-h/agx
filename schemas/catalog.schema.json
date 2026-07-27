@@ -34,6 +34,11 @@
       "propertyNames": { "$ref": "#/$defs/name" },
       "additionalProperties": { "$ref": "#/$defs/instruction" }
     },
+    "mcpServers": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/mcpServer" }
+    },
     "profiles": {
       "type": "object",
       "propertyNames": { "$ref": "#/$defs/name" },
@@ -103,6 +108,52 @@
             "opencode": { "$ref": "#/$defs/target" }
           }
         }
+      }
+    },
+    "mcpServer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transport", "command", "targets"],
+      "properties": {
+        "transport": { "const": "stdio" },
+        "command": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["executable"],
+          "properties": {
+            "executable": { "type": "string", "minLength": 1 },
+            "args": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "environment": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/environmentName" },
+          "additionalProperties": { "$ref": "#/$defs/environmentReference" }
+        },
+        "targets": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "codex": { "$ref": "#/$defs/target" }
+          }
+        }
+      }
+    },
+    "environmentName": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "environmentReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "name"],
+      "properties": {
+        "from": { "const": "env" },
+        "name": { "$ref": "#/$defs/environmentName" }
       }
     },
     "target": {

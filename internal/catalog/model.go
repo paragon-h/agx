@@ -27,6 +27,7 @@ type Catalog struct {
 	Defaults     Defaults               `json:"defaults,omitempty" yaml:"defaults,omitempty"`
 	Skills       map[string]Skill       `json:"skills" yaml:"skills"`
 	Instructions map[string]Instruction `json:"instructions,omitempty" yaml:"instructions,omitempty"`
+	MCPServers   map[string]MCPServer   `json:"mcpServers,omitempty" yaml:"mcpServers,omitempty"`
 	Profiles     map[string]Profile     `json:"profiles,omitempty" yaml:"profiles,omitempty"`
 }
 
@@ -59,6 +60,23 @@ type TargetConfig struct {
 type Instruction struct {
 	Sources []string                `json:"sources" yaml:"sources"`
 	Targets map[string]TargetConfig `json:"targets" yaml:"targets"`
+}
+
+type MCPServer struct {
+	Transport   string                             `json:"transport" yaml:"transport"`
+	Command     MCPCommand                         `json:"command" yaml:"command"`
+	Environment map[string]MCPEnvironmentReference `json:"environment,omitempty" yaml:"environment,omitempty"`
+	Targets     map[string]TargetConfig            `json:"targets" yaml:"targets"`
+}
+
+type MCPCommand struct {
+	Executable string   `json:"executable" yaml:"executable"`
+	Args       []string `json:"args,omitempty" yaml:"args,omitempty"`
+}
+
+type MCPEnvironmentReference struct {
+	From string `json:"from" yaml:"from"`
+	Name string `json:"name" yaml:"name"`
 }
 
 type Profile struct {
@@ -109,6 +127,14 @@ func (c Catalog) Validate() error {
 			return fmt.Errorf("instructions %q: %w", name, err)
 		}
 	}
+	for name, server := range c.MCPServers {
+		if !ValidName(name) || strings.Contains(name, "/") {
+			return fmt.Errorf("MCP server %q has an invalid short name", name)
+		}
+		if err := server.Validate(); err != nil {
+			return fmt.Errorf("MCP server %q: %w", name, err)
+		}
+	}
 	for name, profile := range c.Profiles {
 		if !ValidName(name) || strings.Contains(name, "/") {
 			return fmt.Errorf("profile %q has an invalid short name", name)
@@ -118,6 +144,78 @@ func (c Catalog) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (m MCPServer) Validate() error {
+	if m.Transport != "stdio" {
+		return errors.New("transport must be stdio")
+	}
+	if err := validateMCPCommandValue("command.executable", m.Command.Executable, true); err != nil {
+		return err
+	}
+	for index, arg := range m.Command.Args {
+		if err := validateMCPCommandValue(fmt.Sprintf("command.args[%d]", index), arg, false); err != nil {
+			return err
+		}
+	}
+	for variable, reference := range m.Environment {
+		if !ValidEnvironmentVariable(variable) {
+			return fmt.Errorf("environment variable %q is not a portable identifier", variable)
+		}
+		if reference.From != "env" {
+			return fmt.Errorf("environment variable %q must use from: env", variable)
+		}
+		if !ValidEnvironmentVariable(reference.Name) {
+			return fmt.Errorf("environment variable source %q is not a portable identifier", reference.Name)
+		}
+		if variable != reference.Name {
+			return fmt.Errorf("environment variable %q must use the same source name for Codex STDIO forwarding", variable)
+		}
+	}
+	if len(m.Targets) == 0 {
+		return errors.New("targets must contain at least one agent")
+	}
+	hasEnabledTarget := false
+	for target, config := range m.Targets {
+		if target != "codex" {
+			return fmt.Errorf("MCP servers do not support target %q in this milestone", target)
+		}
+		if config.Enabled == nil || *config.Enabled {
+			hasEnabledTarget = true
+		}
+	}
+	if !hasEnabledTarget {
+		return errors.New("targets must enable at least one agent")
+	}
+	return nil
+}
+
+func validateMCPCommandValue(field, value string, executable bool) error {
+	if executable && strings.TrimSpace(value) == "" {
+		return fmt.Errorf("%s must not be empty", field)
+	}
+	for _, char := range value {
+		if char == 0 || char == '\n' || char == '\r' || char < 0x20 || char == 0x7f {
+			return fmt.Errorf("%s contains unsupported control characters", field)
+		}
+	}
+	if executable && strings.ContainsAny(value, "|&;<>()`$") {
+		return fmt.Errorf("%s must be an executable path or name, not a shell command", field)
+	}
+	return nil
+}
+
+func ValidEnvironmentVariable(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index, char := range value {
+		if (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || char == '_' || (index > 0 && char >= '0' && char <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func (i Instruction) Validate() error {

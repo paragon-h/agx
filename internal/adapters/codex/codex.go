@@ -26,5 +26,6 @@ func (Adapter) ResolvePaths(context.Context) (adapters.Paths, error) {
 		SkillsDir:                filepath.Join(home, "skills"),
 		InstructionsFile:         filepath.Join(home, "AGENTS.md"),
 		InstructionsOverrideFile: filepath.Join(home, "AGENTS.override.md"),
+		ConfigFile:               filepath.Join(home, "config.toml"),
 	}, nil
 }

@@ -89,6 +89,48 @@ func TestCatalogAcceptsSupportedInstructionsTargets(t *testing.T) {
 	}
 }
 
+func TestCatalogAcceptsCodexStdioMCPServer(t *testing.T) {
+	catalog := Catalog{
+		APIVersion: APIVersion,
+		Kind:       Kind,
+		Metadata:   Metadata{Name: "personal"},
+		Skills:     map[string]Skill{},
+		MCPServers: map[string]MCPServer{
+			"github": {
+				Transport: "stdio",
+				Command:   MCPCommand{Executable: "github-mcp-server", Args: []string{"stdio"}},
+				Environment: map[string]MCPEnvironmentReference{
+					"GITHUB_TOKEN": {From: "env", Name: "GITHUB_TOKEN"},
+				},
+				Targets: map[string]TargetConfig{"codex": {}},
+			},
+		},
+	}
+	if err := catalog.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestCatalogRejectsUnsafeMCPDeclarations(t *testing.T) {
+	tests := []struct {
+		name   string
+		server MCPServer
+	}{
+		{name: "transport", server: MCPServer{Transport: "http", Command: MCPCommand{Executable: "server"}, Targets: map[string]TargetConfig{"codex": {}}}},
+		{name: "shell command", server: MCPServer{Transport: "stdio", Command: MCPCommand{Executable: "server | sh"}, Targets: map[string]TargetConfig{"codex": {}}}},
+		{name: "renamed env", server: MCPServer{Transport: "stdio", Command: MCPCommand{Executable: "server"}, Environment: map[string]MCPEnvironmentReference{"TOKEN": {From: "env", Name: "OTHER_TOKEN"}}, Targets: map[string]TargetConfig{"codex": {}}}},
+		{name: "unsupported target", server: MCPServer{Transport: "stdio", Command: MCPCommand{Executable: "server"}, Targets: map[string]TargetConfig{"pi": {}}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			catalog := Catalog{APIVersion: APIVersion, Kind: Kind, Metadata: Metadata{Name: "personal"}, Skills: map[string]Skill{}, MCPServers: map[string]MCPServer{"server": test.server}}
+			if err := catalog.Validate(); err == nil {
+				t.Fatal("Validate() error = nil")
+			}
+		})
+	}
+}
+
 func TestCatalogAcceptsAbsoluteAndHomeLocalPaths(t *testing.T) {
 	for _, sourcePath := range []string{"/opt/agent-skills/review", "~/agent-skills/review"} {
 		t.Run(sourcePath, func(t *testing.T) {

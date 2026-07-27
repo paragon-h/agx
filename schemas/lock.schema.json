@@ -18,6 +18,11 @@
       "type": "object",
       "propertyNames": { "$ref": "#/$defs/name" },
       "additionalProperties": { "$ref": "#/$defs/lockedInstruction" }
+    },
+    "mcpServers": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/lockedMCPServer" }
     }
   },
   "$defs": {
@@ -66,6 +71,57 @@
         "content": { "type": "string", "minLength": 1 },
         "contentDigest": { "$ref": "#/$defs/digest" },
         "lockedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "lockedMCPServer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transport", "command", "targets", "lockedAt"],
+      "properties": {
+        "transport": { "const": "stdio" },
+        "command": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["executable"],
+          "properties": {
+            "executable": { "type": "string", "minLength": 1 },
+            "args": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "environment": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/environmentName" },
+          "additionalProperties": { "$ref": "#/$defs/environmentReference" }
+        },
+        "targets": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "codex": { "$ref": "#/$defs/target" }
+          }
+        },
+        "lockedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "environmentName": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "environmentReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "name"],
+      "properties": {
+        "from": { "const": "env" },
+        "name": { "$ref": "#/$defs/environmentName" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" }
       }
     },
     "lockedLocalSource": {

@@ -20,6 +20,14 @@ func (c Catalog) SelectProfile(profileName string) (Catalog, error) {
 	for _, resource := range selection.Resources {
 		selected.Skills[resource.Name] = resource.Skill
 	}
+	selected.Instructions = make(map[string]Instruction, len(selection.Instructions))
+	for _, resource := range selection.Instructions {
+		selected.Instructions[resource.Name] = resource.Instruction
+	}
+	selected.MCPServers = make(map[string]MCPServer, len(selection.MCPServers))
+	for _, resource := range selection.MCPServers {
+		selected.MCPServers[resource.Name] = resource.MCPServer
+	}
 	return selected, nil
 }
 

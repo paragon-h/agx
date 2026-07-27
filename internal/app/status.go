@@ -11,6 +11,7 @@ import (
 	"github.com/paragon-h/agx/internal/contenthash"
 	"github.com/paragon-h/agx/internal/installer"
 	"github.com/paragon-h/agx/internal/instructions"
+	"github.com/paragon-h/agx/internal/mcpconfig"
 	"github.com/paragon-h/agx/internal/state"
 )
 
@@ -159,7 +160,7 @@ func inspectStatusEntry(entry state.Entry) statusEntry {
 			result.Reason = err.Error()
 			return result
 		}
-		managedDigest, found, err := instructions.DigestManaged(content)
+		managedDigest, found, err := digestManagedFile(entry, content)
 		if err != nil {
 			result.State = "invalid"
 			result.Reason = err.Error()
@@ -167,7 +168,7 @@ func inspectStatusEntry(entry state.Entry) statusEntry {
 		}
 		if !found || managedDigest != entry.ManagedDigest {
 			result.State = "modified"
-			result.Reason = "managed Instructions differ from the active generation"
+			result.Reason = "managed file content differs from the active generation"
 			return result
 		}
 		result.State = "healthy"
@@ -180,6 +181,13 @@ func inspectStatusEntry(entry state.Entry) statusEntry {
 	}
 	result.State = "healthy"
 	return result
+}
+
+func digestManagedFile(entry state.Entry, content []byte) (string, bool, error) {
+	if entry.Skill == "mcp-servers" {
+		return mcpconfig.DigestManaged(content)
+	}
+	return instructions.DigestManaged(content)
 }
 
 func renderStatusText(w io.Writer, report statusReport) {

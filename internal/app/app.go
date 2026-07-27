@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -124,6 +125,9 @@ func (r *Runner) list(args []string) int {
 	for _, resource := range selection.Instructions {
 		_, _ = fmt.Fprintf(r.stdout, "instructions:%s\tinstructions\t%s\n", resource.QualifiedName, strings.Join(enabledTargets(resource.Instruction.Targets), ","))
 	}
+	for _, resource := range selection.MCPServers {
+		_, _ = fmt.Fprintf(r.stdout, "mcp:%s\tmcp-stdio\t%s\n", resource.QualifiedName, strings.Join(enabledTargets(resource.MCPServer.Targets), ","))
+	}
 	return ExitSuccess
 }
 
@@ -193,6 +197,9 @@ func (r *Runner) verifyFrozen(document catalog.Document, path string) int {
 	if len(value.Instructions) != len(document.Catalog.Instructions) {
 		return r.commandError(ExitLockOutdated, "LOCK_OUTDATED", errors.New("catalog and lockfile contain different Instructions sets"))
 	}
+	if len(value.MCPServers) != len(document.Catalog.MCPServers) {
+		return r.commandError(ExitLockOutdated, "LOCK_OUTDATED", errors.New("catalog and lockfile contain different MCP server sets"))
+	}
 	for name, skill := range document.Catalog.Skills {
 		locked, ok := value.Skills[name]
 		if !ok {
@@ -257,6 +264,15 @@ func (r *Runner) verifyFrozen(document catalog.Document, path string) int {
 			return r.commandError(ExitLockOutdated, "LOCK_OUTDATED", fmt.Errorf("instructions %q changed", name))
 		}
 	}
+	for name, declaration := range document.Catalog.MCPServers {
+		locked, ok := value.MCPServers[name]
+		if !ok {
+			return r.commandError(ExitLockOutdated, "LOCK_OUTDATED", fmt.Errorf("MCP server %q is missing from lockfile", name))
+		}
+		if !mcpDeclarationMatchesLock(declaration, locked) {
+			return r.commandError(ExitLockOutdated, "LOCK_OUTDATED", fmt.Errorf("MCP server %q changed", name))
+		}
+	}
 	fmt.Fprintf(r.stdout, "lockfile verified (frozen): %s\n", path)
 	return ExitSuccess
 }
@@ -272,6 +288,7 @@ func buildLock(ctx context.Context, document catalog.Document, lockedAt time.Tim
 		CatalogDigest: catalogDigest,
 		Skills:        make(map[string]lockfile.LockedSkill, len(document.Catalog.Skills)),
 		Instructions:  make(map[string]lockfile.LockedInstruction, len(document.Catalog.Instructions)),
+		MCPServers:    make(map[string]lockfile.LockedMCPServer, len(document.Catalog.MCPServers)),
 	}
 	for name, skill := range document.Catalog.Skills {
 		locked := lockfile.LockedSkill{
@@ -320,7 +337,62 @@ func buildLock(ctx context.Context, document catalog.Document, lockedAt time.Tim
 		}
 		value.Instructions[name] = locked
 	}
-	return value, len(value.Skills) + len(value.Instructions), nil
+	for name, declaration := range document.Catalog.MCPServers {
+		locked := lockMCPServer(declaration, lockedAt)
+		if previous != nil {
+			if old, ok := previous.MCPServers[name]; ok && sameLockedMCPServer(locked, old) {
+				locked.LockedAt = old.LockedAt
+			}
+		}
+		value.MCPServers[name] = locked
+	}
+	return value, len(value.Skills) + len(value.Instructions) + len(value.MCPServers), nil
+}
+
+func lockMCPServer(declaration catalog.MCPServer, lockedAt time.Time) lockfile.LockedMCPServer {
+	return lockfile.LockedMCPServer{
+		Transport:   declaration.Transport,
+		Command:     catalog.MCPCommand{Executable: declaration.Command.Executable, Args: append([]string(nil), declaration.Command.Args...)},
+		Environment: cloneMCPEnvironment(declaration.Environment),
+		Targets:     cloneTargets(declaration.Targets),
+		LockedAt:    lockedAt.Format(time.RFC3339),
+	}
+}
+
+func sameLockedMCPServer(left, right lockfile.LockedMCPServer) bool {
+	left.LockedAt = ""
+	right.LockedAt = ""
+	return reflect.DeepEqual(left, right)
+}
+
+func mcpDeclarationMatchesLock(declaration catalog.MCPServer, locked lockfile.LockedMCPServer) bool {
+	return sameLockedMCPServer(lockMCPServer(declaration, time.Time{}), locked)
+}
+
+func cloneMCPEnvironment(source map[string]catalog.MCPEnvironmentReference) map[string]catalog.MCPEnvironmentReference {
+	if source == nil {
+		return nil
+	}
+	result := make(map[string]catalog.MCPEnvironmentReference, len(source))
+	for name, reference := range source {
+		result[name] = reference
+	}
+	return result
+}
+
+func cloneTargets(source map[string]catalog.TargetConfig) map[string]catalog.TargetConfig {
+	if source == nil {
+		return nil
+	}
+	result := make(map[string]catalog.TargetConfig, len(source))
+	for name, config := range source {
+		if config.Enabled != nil {
+			enabled := *config.Enabled
+			config.Enabled = &enabled
+		}
+		result[name] = config
+	}
+	return result
 }
 
 func lockInstruction(document catalog.Document, declaration catalog.Instruction, lockedAt time.Time) (lockfile.LockedInstruction, error) {

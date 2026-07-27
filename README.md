@@ -21,9 +21,9 @@ Skills + Plugins + MCP Servers + Instructions
 
 AGX is currently in the early design and implementation stage. Its CLI, catalog schema, and installation workflow are not yet stable. This README describes the intended architecture; it does not imply that every feature is already available.
 
-The implemented scope currently includes Skills, Codex/Pi/OpenCode global Instructions, a local Catalog registry, Profiles, explicit local multi-Catalog composition, a content-addressed Store, `local` and `git` Skill sources, Codex, Claude Code, Pi, and OpenCode adapters, copy-based installation, overlays, and the `init`, `catalog`, `store`, `list`, `lock`, `plan`, `apply`, `status`, `rollback`, `repair`, `diff`, `audit`, `approve`, `update`, and `doctor` commands. Plugins, MCP servers, Claude global Instructions, remote Catalog fetching, and Catalog Git synchronization remain part of the target model but are not yet implemented.
+The implemented scope currently includes Skills, Codex STDIO MCP servers, Codex/Pi/OpenCode global Instructions, a local Catalog registry, Profiles, explicit local multi-Catalog composition, a content-addressed Store, `local` and `git` Skill sources, Codex, Claude Code, Pi, and OpenCode adapters, copy-based installation, overlays, and the `init`, `catalog`, `store`, `list`, `lock`, `plan`, `apply`, `status`, `rollback`, `repair`, `diff`, `audit`, `approve`, `update`, and `doctor` commands. Plugins, additional MCP transports and targets, Claude global Instructions, remote Catalog fetching, and Catalog Git synchronization remain part of the target model but are not yet implemented.
 
-The current prototype can initialize, register, select, load, and lock a local Catalog, check and selectively accept source updates, apply deterministic overlays, compare locked and candidate Skill content, run static risk audits, store digest-bound local approvals, install local or approved Git-backed Skills, manage a marked section in Codex's global `AGENTS.md`, inspect the active generation, and restore an earlier snapshot. Content outside the AGX Instructions markers is preserved during update, removal, and rollback, and edits outside that block are not treated as managed drift. Overlays currently support deterministic `SKILL.md` prepend/append content and disabling named scripts; unsupported rename and target-private metadata are rejected explicitly. Git Skills are unreviewed by default: `plan` and `apply` reject them until `agx approve` records approval for the exact commit, content digest, overlay digest, Adapter security version, and policy digest. Changing any bound value—including accepting an update—invalidates approval. Status and doctor detect unfinished transactions, while `agx repair` safely completes their compensation rollback when recorded content digests still match. Unknown existing Skill targets remain conflicts unless `--adopt` is used with exactly matching content; externally modified managed content is never silently overwritten. Generations created before rollback snapshots were introduced cannot be restored. GitHub Actions verifies native tests and builds on Linux, macOS, and Windows, with race detection and vetting on Linux.
+The current prototype can initialize, register, select, load, and lock a local Catalog, check and selectively accept source updates, apply deterministic overlays, compare locked and candidate Skill content, run static risk audits, store digest-bound local approvals, install local or approved Git-backed Skills, manage marked sections in Codex's global `AGENTS.md` and `config.toml`, inspect the active generation, and restore an earlier snapshot. Content outside AGX-managed markers is preserved during update, removal, and rollback, and edits outside those blocks are not treated as managed drift. Overlays currently support deterministic `SKILL.md` prepend/append content and disabling named scripts; unsupported rename and target-private metadata are rejected explicitly. Git Skills are unreviewed by default: `plan` and `apply` reject them until `agx approve` records approval for the exact commit, content digest, overlay digest, Adapter security version, and policy digest. Changing any bound value—including accepting an update—invalidates approval. Status and doctor detect unfinished transactions, while `agx repair` safely completes their compensation rollback when recorded content digests still match. Unknown existing Skill targets remain conflicts unless `--adopt` is used with exactly matching content; externally modified managed content is never silently overwritten. Generations created before rollback snapshots were introduced cannot be restored. GitHub Actions verifies native tests and builds on Linux, macOS, and Windows, with race detection and vetting on Linux.
 
 Local Skill, overlay, and Instructions source paths may be relative to the Catalog, absolute, or rooted at the current user's home with `~/`. For example, `skills/review`, `~/agent-skills/review`, and `/opt/agent-skills/review` are valid on Unix-like systems; Windows also accepts native absolute paths such as `C:\agent-skills\review`. AGX does not expand environment variables or other users' homes such as `~alice`. Git source `path` values remain relative to the repository root. Prefer `~/` over an absolute path when the same Catalog will be used on multiple machines, because the original path expression is preserved in `agx.lock`.
 
@@ -102,6 +102,25 @@ instructions:
 The managed paths are `$CODEX_HOME/AGENTS.md` (default `~/.codex/AGENTS.md`), `$PI_CODING_AGENT_DIR/AGENTS.md` (default `~/.pi/agent/AGENTS.md`), and `$XDG_CONFIG_HOME/opencode/AGENTS.md` (default `~/.config/opencode/AGENTS.md`).
 
 If a non-empty `$CODEX_HOME/AGENTS.override.md` exists, `plan`, `apply`, and `doctor` report a conflict because Codex gives it precedence over `AGENTS.md`. Codex loads global guidance when a run starts, so restart the Codex session after applying changed Instructions. Profile `targets` filter Instructions as well as Skills; Instructions sets are otherwise included automatically from the selected Catalogs. Updates, removal, and rollback preserve all content outside `<!-- BEGIN AGX MANAGED INSTRUCTIONS -->` and `<!-- END AGX MANAGED INSTRUCTIONS -->`.
+
+Codex STDIO MCP servers are declared with an executable, argument array, forwarded environment variable names, and a Codex target:
+
+```yaml
+mcpServers:
+  github:
+    transport: stdio
+    command:
+      executable: github-mcp-server
+      args: [stdio]
+    environment:
+      GITHUB_TOKEN:
+        from: env
+        name: GITHUB_TOKEN
+    targets:
+      codex: {}
+```
+
+`agx lock` records only the declaration, never the value of `GITHUB_TOKEN`. `plan` and `apply` require the executable and each forwarded environment variable to be available. AGX manages a marked block in `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`), preserves unrelated TOML, rejects unmanaged same-name server tables, and includes the block in status, rollback, and transaction recovery. Restart or refresh Codex after changing MCP configuration.
 
 `agx lock` stores the exact raw Skill and Overlay directories under their SHA-256 digests. Locked review, planning, approval, and installation verify and materialize those immutable objects instead of repeatedly fetching Git repositories or depending on a local source directory that may later disappear. Candidate review and update checks still resolve the live source. A changed live local source or Overlay remains lock drift and requires `agx lock`; a missing source can use its verified Store object. Corrupt objects are rejected rather than silently repaired. The Store defaults to `store/` under the AGX state directory and can be relocated with an absolute `AGX_STORE_HOME` path. Automatic garbage collection is not implemented yet.
 
@@ -317,12 +336,12 @@ AGX is planned as a Go application distributed as a single binary for macOS, Lin
 
 1. A local catalog, `local` and `git` sources, Codex, Claude, Pi, and OpenCode adapters, and safe copy-based installation.
 2. Store lifecycle and garbage collection, richer overlay patching, diffs and auditing, generations, and rollback.
-3. Plugins, MCP servers, instructions, profiles, multi-Catalog composition, and additional agent adapters.
+3. Plugins, additional MCP transports and targets, additional Instructions targets, and additional agent adapters.
 4. Archive sources, signature verification, a public catalog index specification, and package-manager distribution.
 
 ## Development
 
-The current scaffold requires Go 1.26 or later and has no third-party runtime dependencies.
+The current scaffold requires Go 1.26 or later.
 
 ```bash
 make build       # bin/agx (bin/agx.exe on Windows)

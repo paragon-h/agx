@@ -14,6 +14,7 @@ import (
 	"github.com/paragon-h/agx/internal/contenthash"
 	"github.com/paragon-h/agx/internal/instructions"
 	"github.com/paragon-h/agx/internal/lockfile"
+	"github.com/paragon-h/agx/internal/mcpconfig"
 )
 
 type catalogDeploymentInput struct {
@@ -36,11 +37,19 @@ type desiredState struct {
 	Catalogs     []catalogDeploymentInput
 	Skills       []desiredSkill
 	Instructions []desiredInstruction
+	MCPConfigs   []desiredMCPConfig
 	Profile      string
 }
 
 type desiredInstruction struct {
 	Target        string
+	Content       []byte
+	ManagedDigest string
+}
+
+type desiredMCPConfig struct {
+	Target        string
+	Servers       map[string]lockfile.LockedMCPServer
 	Content       []byte
 	ManagedDigest string
 }
@@ -117,6 +126,41 @@ func loadDesiredState(ctx context.Context, collection catalog.Collection, profil
 		}
 		result.Instructions = append(result.Instructions, desiredInstruction{Target: target, Content: content, ManagedDigest: contenthash.Bytes(content)})
 	}
+	mcpServers := make(map[string]map[string]lockfile.LockedMCPServer)
+	mcpOwners := make(map[string]string)
+	for _, resource := range selection.MCPServers {
+		input := inputs[resource.CatalogName]
+		lockedServer, exists := input.Locked.MCPServers[resource.Name]
+		if !exists {
+			return desiredState{}, ExitLockOutdated, fmt.Errorf("catalog %q MCP server %q is missing from lockfile", resource.CatalogName, resource.Name)
+		}
+		for _, target := range enabledTargets(resource.MCPServer.Targets) {
+			key := target + "\x00" + resource.Name
+			if owner, exists := mcpOwners[key]; exists {
+				return desiredState{}, ExitInvalidConfig, fmt.Errorf("MCP servers %s and %s use the same %s server name %q", owner, resource.QualifiedName, target, resource.Name)
+			}
+			mcpOwners[key] = resource.QualifiedName
+			if mcpServers[target] == nil {
+				mcpServers[target] = make(map[string]lockfile.LockedMCPServer)
+			}
+			mcpServers[target][resource.Name] = lockedServer
+		}
+	}
+	for _, target := range sortedMapKeys(mcpServers) {
+		servers := make(map[string]mcpconfig.Server, len(mcpServers[target]))
+		for name, server := range mcpServers[target] {
+			envVars := make([]string, 0, len(server.Environment))
+			for variable := range server.Environment {
+				envVars = append(envVars, variable)
+			}
+			servers[name] = mcpconfig.Server{Executable: server.Command.Executable, Args: append([]string(nil), server.Command.Args...), EnvVars: envVars}
+		}
+		content, err := mcpconfig.Compose(servers)
+		if err != nil {
+			return desiredState{}, ExitInvalidConfig, fmt.Errorf("compose %s MCP servers: %w", target, err)
+		}
+		result.MCPConfigs = append(result.MCPConfigs, desiredMCPConfig{Target: target, Servers: mcpServers[target], Content: content, ManagedDigest: contenthash.Bytes(content)})
+	}
 	return result, ExitSuccess, nil
 }
 
@@ -145,6 +189,9 @@ func (d desiredState) targetNames() []string {
 	}
 	for _, instruction := range d.Instructions {
 		seen[instruction.Target] = struct{}{}
+	}
+	for _, config := range d.MCPConfigs {
+		seen[config.Target] = struct{}{}
 	}
 	names := make([]string, 0, len(seen))
 	for name := range seen {

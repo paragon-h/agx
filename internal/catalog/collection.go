@@ -26,11 +26,20 @@ type InstructionResource struct {
 	Instruction   Instruction
 }
 
+type MCPServerResource struct {
+	CatalogName   string
+	Name          string
+	QualifiedName string
+	Document      Document
+	MCPServer     MCPServer
+}
+
 type Selection struct {
 	Profile      string
 	Targets      []string
 	Resources    []Resource
 	Instructions []InstructionResource
+	MCPServers   []MCPServerResource
 }
 
 func NewCollection(documents []Document) (Collection, error) {
@@ -72,7 +81,7 @@ func (c Collection) Resources() []Resource {
 func (c Collection) SelectProfile(reference string) (Selection, error) {
 	resources := c.Resources()
 	if reference == "" {
-		return Selection{Resources: resources, Instructions: c.InstructionResources()}, nil
+		return Selection{Resources: resources, Instructions: c.InstructionResources(), MCPServers: c.MCPServerResources()}, nil
 	}
 	owner, profileName, err := c.resolveProfile(reference)
 	if err != nil {
@@ -148,6 +157,20 @@ func (c Collection) SelectProfile(reference string) (Selection, error) {
 			selected.Instructions = append(selected.Instructions, resource)
 		}
 	}
+	for _, resource := range c.MCPServerResources() {
+		if len(targets) != 0 {
+			filtered := make(map[string]TargetConfig, len(resource.MCPServer.Targets))
+			for target, config := range resource.MCPServer.Targets {
+				if _, exists := targets[target]; exists {
+					filtered[target] = config
+				}
+			}
+			resource.MCPServer.Targets = filtered
+		}
+		if hasEnabledTarget(resource.MCPServer.Targets) {
+			selected.MCPServers = append(selected.MCPServers, resource)
+		}
+	}
 	return selected, nil
 }
 
@@ -167,6 +190,28 @@ func (c Collection) InstructionResources() []InstructionResource {
 				QualifiedName: QualifiedName(catalogName, name),
 				Document:      document,
 				Instruction:   document.Catalog.Instructions[name],
+			})
+		}
+	}
+	return resources
+}
+
+func (c Collection) MCPServerResources() []MCPServerResource {
+	resources := make([]MCPServerResource, 0)
+	for _, catalogName := range c.Names {
+		document := c.Documents[catalogName]
+		names := make([]string, 0, len(document.Catalog.MCPServers))
+		for name := range document.Catalog.MCPServers {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			resources = append(resources, MCPServerResource{
+				CatalogName:   catalogName,
+				Name:          name,
+				QualifiedName: QualifiedName(catalogName, name),
+				Document:      document,
+				MCPServer:     document.Catalog.MCPServers[name],
 			})
 		}
 	}
