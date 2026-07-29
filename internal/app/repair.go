@@ -7,8 +7,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/paragon-h/agx/internal/installer"
-	"github.com/paragon-h/agx/internal/state"
+	"github.com/alanhuangch/agx/internal/installer"
+	"github.com/alanhuangch/agx/internal/state"
 )
 
 type repairResult struct {

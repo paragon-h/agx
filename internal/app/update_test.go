@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/paragon-h/agx/internal/lockfile"
-	"github.com/paragon-h/agx/internal/security"
+	"github.com/alanhuangch/agx/internal/lockfile"
+	"github.com/alanhuangch/agx/internal/security"
 )
 
 func TestRunnerUpdateCheckAndAcceptGitCandidate(t *testing.T) {

@@ -10,11 +10,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/paragon-h/agx/internal/catalog"
-	"github.com/paragon-h/agx/internal/contenthash"
-	"github.com/paragon-h/agx/internal/instructions"
-	"github.com/paragon-h/agx/internal/lockfile"
-	"github.com/paragon-h/agx/internal/mcpconfig"
+	"github.com/alanhuangch/agx/internal/catalog"
+	"github.com/alanhuangch/agx/internal/contenthash"
+	"github.com/alanhuangch/agx/internal/instructions"
+	"github.com/alanhuangch/agx/internal/lockfile"
+	"github.com/alanhuangch/agx/internal/mcpconfig"
 )
 
 type catalogDeploymentInput struct {

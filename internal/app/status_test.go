@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/paragon-h/agx/internal/installer"
+	"github.com/alanhuangch/agx/internal/installer"
 )
 
 func TestRunnerStatusEmpty(t *testing.T) {

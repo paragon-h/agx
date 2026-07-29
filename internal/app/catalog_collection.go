@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/paragon-h/agx/internal/catalog"
-	"github.com/paragon-h/agx/internal/registry"
+	"github.com/alanhuangch/agx/internal/catalog"
+	"github.com/alanhuangch/agx/internal/registry"
 )
 
 func loadCatalogCollection(explicitPath, registeredNames string) (catalog.Collection, error) {

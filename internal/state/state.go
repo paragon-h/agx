@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/paragon-h/agx/internal/catalog"
-	"github.com/paragon-h/agx/internal/contenthash"
-	"github.com/paragon-h/agx/internal/filetree"
+	"github.com/alanhuangch/agx/internal/catalog"
+	"github.com/alanhuangch/agx/internal/contenthash"
+	"github.com/alanhuangch/agx/internal/filetree"
 )
 
 type Generation struct {

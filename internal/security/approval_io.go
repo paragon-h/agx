@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/paragon-h/agx/internal/state"
+	"github.com/alanhuangch/agx/internal/state"
 )
 
 func SaveApproval(approval Approval) error {

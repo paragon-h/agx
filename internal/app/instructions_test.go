@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/paragon-h/agx/internal/instructions"
-	"github.com/paragon-h/agx/internal/state"
+	"github.com/alanhuangch/agx/internal/instructions"
+	"github.com/alanhuangch/agx/internal/state"
 )
 
 func TestRunnerManagesCodexInstructionsAndPreservesUserContent(t *testing.T) {

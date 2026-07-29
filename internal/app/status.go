@@ -8,11 +8,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/paragon-h/agx/internal/contenthash"
-	"github.com/paragon-h/agx/internal/installer"
-	"github.com/paragon-h/agx/internal/instructions"
-	"github.com/paragon-h/agx/internal/mcpconfig"
-	"github.com/paragon-h/agx/internal/state"
+	"github.com/alanhuangch/agx/internal/contenthash"
+	"github.com/alanhuangch/agx/internal/installer"
+	"github.com/alanhuangch/agx/internal/instructions"
+	"github.com/alanhuangch/agx/internal/mcpconfig"
+	"github.com/alanhuangch/agx/internal/state"
 )
 
 type statusReport struct {

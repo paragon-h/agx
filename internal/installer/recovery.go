@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/paragon-h/agx/internal/contenthash"
+	"github.com/alanhuangch/agx/internal/contenthash"
 )
 
 func RepairJournal(journal *Journal) error {

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/paragon-h/agx/internal/contenthash"
+	"github.com/alanhuangch/agx/internal/contenthash"
 )
 
 func TestCopyPreservesContentDigest(t *testing.T) {

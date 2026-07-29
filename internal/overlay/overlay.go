@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/paragon-h/agx/internal/catalog"
+	"github.com/alanhuangch/agx/internal/catalog"
 	"gopkg.in/yaml.v3"
 )
 

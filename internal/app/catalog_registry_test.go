@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/paragon-h/agx/internal/registry"
+	"github.com/alanhuangch/agx/internal/registry"
 )
 
 func TestRunnerCatalogRegistryLifecycle(t *testing.T) {

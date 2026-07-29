@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/paragon-h/agx/internal/catalog"
-	"github.com/paragon-h/agx/internal/registry"
+	"github.com/alanhuangch/agx/internal/catalog"
+	"github.com/alanhuangch/agx/internal/registry"
 )
 
 type catalogListEntry struct {

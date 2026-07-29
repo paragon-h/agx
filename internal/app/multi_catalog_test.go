@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/paragon-h/agx/internal/registry"
-	"github.com/paragon-h/agx/internal/state"
+	"github.com/alanhuangch/agx/internal/registry"
+	"github.com/alanhuangch/agx/internal/state"
 )
 
 func TestRunnerPlanAndApplyComposedCatalogs(t *testing.T) {

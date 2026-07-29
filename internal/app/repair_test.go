@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/paragon-h/agx/internal/contenthash"
-	"github.com/paragon-h/agx/internal/installer"
+	"github.com/alanhuangch/agx/internal/contenthash"
+	"github.com/alanhuangch/agx/internal/installer"
 )
 
 func TestRunnerRepairRestoresInterruptedAdd(t *testing.T) {

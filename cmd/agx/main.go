@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/paragon-h/agx/internal/app"
+	"github.com/alanhuangch/agx/internal/app"
 )
 
 var version = "dev"

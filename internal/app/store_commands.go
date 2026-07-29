@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	contentstore "github.com/paragon-h/agx/internal/store"
+	contentstore "github.com/alanhuangch/agx/internal/store"
 )
 
 type storeSummary struct {

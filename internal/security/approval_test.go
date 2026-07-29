@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/paragon-h/agx/internal/lockfile"
+	"github.com/alanhuangch/agx/internal/lockfile"
 )
 
 func TestSaveLoadAndInvalidateApproval(t *testing.T) {

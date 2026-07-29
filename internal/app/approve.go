@@ -8,7 +8,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/paragon-h/agx/internal/security"
+	"github.com/alanhuangch/agx/internal/security"
 )
 
 type approveResult struct {

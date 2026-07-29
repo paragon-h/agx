@@ -10,14 +10,14 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/paragon-h/agx/internal/adapters"
-	"github.com/paragon-h/agx/internal/adapters/claude"
-	"github.com/paragon-h/agx/internal/adapters/codex"
-	"github.com/paragon-h/agx/internal/adapters/opencode"
-	"github.com/paragon-h/agx/internal/adapters/pi"
-	"github.com/paragon-h/agx/internal/catalog"
-	"github.com/paragon-h/agx/internal/installer"
-	"github.com/paragon-h/agx/internal/state"
+	"github.com/alanhuangch/agx/internal/adapters"
+	"github.com/alanhuangch/agx/internal/adapters/claude"
+	"github.com/alanhuangch/agx/internal/adapters/codex"
+	"github.com/alanhuangch/agx/internal/adapters/opencode"
+	"github.com/alanhuangch/agx/internal/adapters/pi"
+	"github.com/alanhuangch/agx/internal/catalog"
+	"github.com/alanhuangch/agx/internal/installer"
+	"github.com/alanhuangch/agx/internal/state"
 )
 
 type doctorReport struct {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/paragon-h/agx/internal/contenthash"
+	"github.com/alanhuangch/agx/internal/contenthash"
 )
 
 func TestPutVerifyAndMaterialize(t *testing.T) {

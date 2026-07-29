@@ -1,4 +1,4 @@
-module github.com/paragon-h/agx
+module github.com/alanhuangch/agx
 
 go 1.26
 

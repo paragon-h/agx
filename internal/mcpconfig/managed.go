@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/paragon-h/agx/internal/contenthash"
+	"github.com/alanhuangch/agx/internal/contenthash"
 )
 
 const (

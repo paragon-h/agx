@@ -3,7 +3,7 @@ package claude
 import (
 	"context"
 
-	"github.com/paragon-h/agx/internal/adapters"
+	"github.com/alanhuangch/agx/internal/adapters"
 )
 
 type Adapter struct{}

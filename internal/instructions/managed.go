@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/paragon-h/agx/internal/contenthash"
+	"github.com/alanhuangch/agx/internal/contenthash"
 )
 
 const (

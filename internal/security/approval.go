@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/paragon-h/agx/internal/catalog"
-	"github.com/paragon-h/agx/internal/lockfile"
+	"github.com/alanhuangch/agx/internal/catalog"
+	"github.com/alanhuangch/agx/internal/lockfile"
 )
 
 const (

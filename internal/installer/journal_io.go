@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/paragon-h/agx/internal/state"
+	"github.com/alanhuangch/agx/internal/state"
 )
 
 func SaveJournal(journal Journal) error {

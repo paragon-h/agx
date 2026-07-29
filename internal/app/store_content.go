@@ -7,14 +7,14 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/paragon-h/agx/internal/catalog"
-	"github.com/paragon-h/agx/internal/contenthash"
-	"github.com/paragon-h/agx/internal/filetree"
-	"github.com/paragon-h/agx/internal/lockfile"
-	"github.com/paragon-h/agx/internal/overlay"
-	gitresolver "github.com/paragon-h/agx/internal/resolver/git"
-	"github.com/paragon-h/agx/internal/state"
-	"github.com/paragon-h/agx/internal/store"
+	"github.com/alanhuangch/agx/internal/catalog"
+	"github.com/alanhuangch/agx/internal/contenthash"
+	"github.com/alanhuangch/agx/internal/filetree"
+	"github.com/alanhuangch/agx/internal/lockfile"
+	"github.com/alanhuangch/agx/internal/overlay"
+	gitresolver "github.com/alanhuangch/agx/internal/resolver/git"
+	"github.com/alanhuangch/agx/internal/state"
+	"github.com/alanhuangch/agx/internal/store"
 )
 
 func storeCurrentSkillSource(ctx context.Context, document catalog.Document, skill catalog.Skill) (lockfile.LockedSource, string, error) {

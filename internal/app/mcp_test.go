@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/paragon-h/agx/internal/mcpconfig"
-	"github.com/paragon-h/agx/internal/state"
+	"github.com/alanhuangch/agx/internal/mcpconfig"
+	"github.com/alanhuangch/agx/internal/state"
 )
 
 func TestRunnerManagesCodexMCPServersAndPreservesUserConfig(t *testing.T) {

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/paragon-h/agx/internal/contenthash"
-	contentstore "github.com/paragon-h/agx/internal/store"
+	"github.com/alanhuangch/agx/internal/contenthash"
+	contentstore "github.com/alanhuangch/agx/internal/store"
 )
 
 func TestRunnerStoreStatusVerifyAndGC(t *testing.T) {

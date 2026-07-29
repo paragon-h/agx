@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/paragon-h/agx/internal/lockfile"
-	"github.com/paragon-h/agx/internal/store"
+	"github.com/alanhuangch/agx/internal/lockfile"
+	"github.com/alanhuangch/agx/internal/store"
 )
 
 func TestRunnerPlanAddsWithoutWritingTargets(t *testing.T) {

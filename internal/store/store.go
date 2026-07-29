@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/paragon-h/agx/internal/contenthash"
-	"github.com/paragon-h/agx/internal/filetree"
-	"github.com/paragon-h/agx/internal/state"
+	"github.com/alanhuangch/agx/internal/contenthash"
+	"github.com/alanhuangch/agx/internal/filetree"
+	"github.com/alanhuangch/agx/internal/state"
 )
 
 var (

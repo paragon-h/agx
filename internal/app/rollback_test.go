@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/paragon-h/agx/internal/state"
+	"github.com/alanhuangch/agx/internal/state"
 )
 
 const testGenerationDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

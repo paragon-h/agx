@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/paragon-h/agx/internal/catalog"
+	"github.com/alanhuangch/agx/internal/catalog"
 )
 
 const initCatalogTemplate = `apiVersion: agx.dev/v1alpha1

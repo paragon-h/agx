@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/paragon-h/agx/internal/catalog"
-	"github.com/paragon-h/agx/internal/lockfile"
+	"github.com/alanhuangch/agx/internal/catalog"
+	"github.com/alanhuangch/agx/internal/lockfile"
 )
 
 func TestRunnerInitCreatesEmptyCatalog(t *testing.T) {
