@@ -2,6 +2,7 @@ package claude
 
 import (
 	"context"
+	"path/filepath"
 
 	"github.com/alanhuangch/agx/internal/adapters"
 )
@@ -17,9 +18,12 @@ func (Adapter) Detect(context.Context) (adapters.Detection, error) {
 }
 
 func (Adapter) ResolvePaths(context.Context) (adapters.Paths, error) {
-	path, err := adapters.SkillsPath("CLAUDE_CONFIG_DIR", ".claude")
+	home, err := adapters.ResolveHome("CLAUDE_CONFIG_DIR", ".claude")
 	if err != nil {
 		return adapters.Paths{}, err
 	}
-	return adapters.Paths{SkillsDir: path}, nil
+	return adapters.Paths{
+		SkillsDir:        filepath.Join(home, "skills"),
+		InstructionsFile: filepath.Join(home, "CLAUDE.md"),
+	}, nil
 }

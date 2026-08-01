@@ -237,7 +237,7 @@ func (i Instruction) Validate() error {
 	}
 	hasEnabledTarget := false
 	for target, config := range i.Targets {
-		if target != "codex" && target != "pi" && target != "opencode" {
+		if target != "codex" && target != "claude" && target != "pi" && target != "opencode" {
 			return fmt.Errorf("global Instructions do not support target %q", target)
 		}
 		if config.Enabled == nil || *config.Enabled {

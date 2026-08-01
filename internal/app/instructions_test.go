@@ -142,7 +142,7 @@ func TestRunnerComposesInstructionsAcrossCatalogsDeterministically(t *testing.T)
 	}
 }
 
-func TestRunnerAppliesInstructionsToCodexPiAndOpenCode(t *testing.T) {
+func TestRunnerAppliesInstructionsToAllBuiltInTargets(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "instructions"), 0o755); err != nil {
 		t.Fatal(err)
@@ -162,6 +162,7 @@ instructions:
       - instructions/common.md
     targets:
       codex: {}
+      claude: {}
       pi: {}
       opencode: {}
 profiles:
@@ -174,16 +175,18 @@ profiles:
 	}
 
 	binDirectory := t.TempDir()
-	for _, name := range []string{"codex", "pi", "opencode"} {
+	for _, name := range []string{"codex", "claude", "pi", "opencode"} {
 		if err := os.WriteFile(filepath.Join(binDirectory, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	t.Setenv("PATH", binDirectory+string(os.PathListSeparator)+os.Getenv("PATH"))
 	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
 	piHome := t.TempDir()
 	xdgHome := t.TempDir()
 	t.Setenv("CODEX_HOME", codexHome)
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeHome)
 	t.Setenv("PI_CODING_AGENT_DIR", piHome)
 	t.Setenv("XDG_CONFIG_HOME", xdgHome)
 	t.Setenv("AGX_STATE_HOME", t.TempDir())
@@ -208,6 +211,7 @@ profiles:
 	runInstructionsCommand(t, runner, stdout, stderr, "apply", "--catalog", catalogPath)
 	targets := []string{
 		filepath.Join(codexHome, "AGENTS.md"),
+		filepath.Join(claudeHome, "CLAUDE.md"),
 		filepath.Join(piHome, "AGENTS.md"),
 		filepath.Join(xdgHome, "opencode", "AGENTS.md"),
 	}
@@ -215,7 +219,7 @@ profiles:
 		assertInstructionsFile(t, target, "Shared global instructions.")
 	}
 	current, err := state.Current()
-	if err != nil || current == nil || len(current.Entries) != 3 {
+	if err != nil || current == nil || len(current.Entries) != 4 {
 		t.Fatalf("multi-target generation = %#v, err = %v", current, err)
 	}
 }

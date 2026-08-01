@@ -73,7 +73,7 @@ func TestCatalogAcceptsSupportedInstructionsTargets(t *testing.T) {
 		Instructions: map[string]Instruction{
 			"common": {
 				Sources: []string{"instructions/common.md"},
-				Targets: map[string]TargetConfig{"codex": {}, "pi": {}, "opencode": {}},
+				Targets: map[string]TargetConfig{"codex": {}, "claude": {}, "pi": {}, "opencode": {}},
 			},
 		},
 	}
@@ -82,10 +82,10 @@ func TestCatalogAcceptsSupportedInstructionsTargets(t *testing.T) {
 	}
 	catalog.Instructions["common"] = Instruction{
 		Sources: []string{"instructions/common.md"},
-		Targets: map[string]TargetConfig{"claude": {}},
+		Targets: map[string]TargetConfig{"unknown": {}},
 	}
 	if err := catalog.Validate(); err == nil {
-		t.Fatal("Validate() error = nil, want unsupported Claude Instructions target")
+		t.Fatal("Validate() error = nil, want unsupported Instructions target")
 	}
 }
 
